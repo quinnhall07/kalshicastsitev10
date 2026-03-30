@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getDbConnection } from '../../../lib/db';
 
+// Tell Next.js to NEVER cache or pre-render this file at build time
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   let connection;
   try {
