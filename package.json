@@ -9,9 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "next": "16.2.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "next": "14.2.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "oracledb": "^6.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
