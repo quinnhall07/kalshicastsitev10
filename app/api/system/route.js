@@ -46,7 +46,7 @@ export async function GET() {
       };
     }
 
-    return NextResponse.json({ system: systemData });
+    return NextResponse.json(systemData);
   } catch (error) {
     console.error("Oracle DB Error:", error);
     return NextResponse.json({ error: 'Database query failed' }, { status: 500 });

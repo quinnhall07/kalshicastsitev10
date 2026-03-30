@@ -271,8 +271,6 @@ const GH_REPO = (typeof process !== 'undefined' && process.env?.VITE_GH_REPO) ||
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
-
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
