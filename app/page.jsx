@@ -885,6 +885,7 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
           <div className="stat-sub">{s.n_bets_won}W / {s.n_bets_lost}L</div>
         </div>
       </div>
+
       {/* NEW: Performance & Success Measures Grid */}
       <div className="section-header" style={{ marginTop: 8 }}>
         <span className="section-title">Performance Measures</span>
@@ -915,7 +916,7 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
           <div className="stat-sub">Expected Utility Ratio</div>
         </div>
       </div>
-      <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
+
       <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
           <span style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Max Drawdown (All-Time)</span>
@@ -931,7 +932,7 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
         </div>
         <div style={{display:'flex',gap:16,marginTop:6}}>
           <span style={{fontSize:9,color:'var(--text-dim)'}}>90-DAY: <span style={{color:'var(--text)'}}>{fmt.pct2(s.mdd_rolling_90)}</span></span>
-          <span style={{fontSize:9,color:'var(--text-dim)'}}>CAL: <span style={{color:'var(--text)'}}>{s.cal.toFixed(4)}</span></span>
+          <span style={{fontSize:9,color:'var(--text-dim)'}}>CAL: <span style={{color:'var(--text)'}}>{s.cal?.toFixed(4) || '0.0000'}</span></span>
           <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{s.mdd_alltime>=mddHalt?<span style={{color:'var(--red)',fontWeight:600}}>⚠ HALTED</span>:s.mdd_alltime>=mddSafe?<span style={{color:'var(--amber)',fontWeight:600}}>▲ WARNING</span>:<span style={{color:'var(--green)',fontWeight:600}}>✓ NORMAL</span>}</span>
         </div>
       </div>
