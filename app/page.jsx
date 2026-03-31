@@ -1855,7 +1855,7 @@ export default function Dashboard() {
         <div className="topbar">
           <div className="logo">
             <div className="logo-dot" style={s.trading_halted?{background:'var(--red)',boxShadow:'0 0 8px var(--red)'}:{}}/>
-            KalshiCast
+            KalshiCast<span style="color:'#3A4058'; font-size: 16;"> by Knowlu</span>
           </div>
           <div className="topbar-metrics">
             <div className="tmet">
