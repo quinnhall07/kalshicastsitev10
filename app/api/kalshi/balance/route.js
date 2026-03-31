@@ -35,7 +35,7 @@ export async function GET() {
     const signature = sign.sign(privateKey, 'base64');
 
     const res = await fetch(
-      https://api.elections.kalshi.com${path}`,
+      `https://api.elections.kalshi.com${path}`,
       {
         headers: {
           'KALSHI-ACCESS-KEY': keyId,
