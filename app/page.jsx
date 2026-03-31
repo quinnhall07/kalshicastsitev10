@@ -333,6 +333,7 @@ const TABS = [
   {id:"bets",label:"Recent Bets"},{id:"alerts",label:"Alerts"},
   {id:"params",label:"Parameters"},{id:"bss",label:"BSS Matrix"},
   {id:"stations",label:"Stations"},{id:"models",label:"Models"},
+  {id:"status",label:"Status"},
 ];
 
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
@@ -1940,6 +1941,7 @@ export default function Dashboard() {
           {tab==='bss'       && <BSSTab       data={data}/>}
           {tab==='stations'  && <StationsTab  data={data}/>}
           {tab==='models'    && <ModelsTab    data={data}/>}
+          {tab==='status'    && <StatusTab    data={data}/>}
         </div>
 
         {/* MODALS */}
@@ -1949,5 +1951,527 @@ export default function Dashboard() {
 
       </div>
     </>
+  );
+  // ─── STATUS TIMELINE TAB ──────────────────────────────────────────────────────
+const HEALTH_COLORS = {
+  healthy: '#2ec07a',
+  degraded: '#f5a623',
+  failed:   '#e84040',
+  no_data:  'rgba(255,255,255,0.05)',
+};
+ 
+const HEALTH_LABELS = {
+  healthy: { icon: '✓', label: 'Healthy',  color: '#2ec07a' },
+  degraded: { icon: '⚠', label: 'Degraded', color: '#f5a623' },
+  failed:   { icon: '✗', label: 'Failed',   color: '#e84040' },
+  no_data:  { icon: '—', label: 'No Data',  color: '#3a4055' },
+};
+ 
+// Each service row: what health key to read, and how to build tooltip details
+const STATUS_SERVICES = [
+  {
+    id: 'collection',
+    label: 'Morning Collection',
+    desc: 'FORECASTS_DAILY · 9 sources · 20 stations',
+    healthKey: 'collection',
+    expectedRows: 720,
+    getDetails: (d) => ({
+      summary:  d.morning_status ? `Pipeline: ${d.morning_status}` : 'No run recorded',
+      rows:     `${d.forecast_rows.toLocaleString()} / 720 forecast rows`,
+      extra:    d.stations_fail > 0 ? `${d.stations_fail} source(s) failed` : null,
+      extra2:   d.stations_ok   > 0 ? `${d.stations_ok} source(s) OK` : null,
+      error:    d.morning_error,
+    }),
+  },
+  {
+    id: 'night',
+    label: 'Night Pipeline',
+    desc: 'CLI OBSERVATIONS · KALMAN · BSS MATRIX',
+    healthKey: 'pipeline_night',
+    expectedRows: 20,
+    getDetails: (d) => ({
+      summary: d.night_status ? `Pipeline: ${d.night_status}` : 'No run recorded',
+      rows:    `${d.obs_rows} / 20 station observations`,
+      extra:   d.amendments > 0 ? `${d.amendments} CLI amendment(s) applied` : null,
+      extra2:  null,
+      error:   d.night_error,
+    }),
+  },
+  {
+    id: 'pricing',
+    label: 'Shadow Book',
+    desc: 'L3 PRICING · Skew-Normal · METAR truncation',
+    healthKey: 'pricing',
+    expectedRows: 600,
+    getDetails: (d) => ({
+      summary: d.market_status ? `Market Open: ${d.market_status}` : 'No run recorded',
+      rows:    `${d.shadow_rows.toLocaleString()} / 600 priced bins`,
+      extra:   null,
+      extra2:  null,
+      error:   d.market_error,
+    }),
+  },
+  {
+    id: 'metar',
+    label: 'METAR Coverage',
+    desc: 'INTRADAY OBSERVATIONS · Aviation Weather Center',
+    healthKey: 'metar',
+    expectedRows: null,
+    getDetails: (d) => ({
+      summary: `${d.metar_stations} / 20 stations with intraday data`,
+      rows:    null,
+      extra:   d.metar_stations < 20 ? `${20 - d.metar_stations} station(s) missing METAR` : null,
+      extra2:  null,
+      error:   null,
+    }),
+  },
+  {
+    id: 'evaluation',
+    label: 'Brier Grading',
+    desc: 'L5 EVALUATION · BRIER_SCORES · BSS matrix',
+    healthKey: 'evaluation',
+    expectedRows: null,
+    getDetails: (d) => ({
+      summary: d.brier_rows > 0
+        ? `${d.brier_rows} score(s) graded`
+        : d.night_status === 'OK' ? 'Night pipeline ran — no scores yet' : 'No grading recorded',
+      rows:    null,
+      extra:   null,
+      extra2:  null,
+      error:   null,
+    }),
+  },
+  {
+    id: 'alerts',
+    label: 'System Alerts',
+    desc: 'CRITICAL EVENTS · SYSTEM_ALERTS table',
+    healthKey: 'alerts',
+    expectedRows: null,
+    getDetails: (d) => ({
+      summary: d.critical_alerts > 0
+        ? `${d.critical_alerts} CRITICAL alert(s)`
+        : d.total_alerts > 0
+          ? `${d.total_alerts} alert(s) — none critical`
+          : 'No alerts recorded',
+      rows:    null,
+      extra:   d.alert_types || null,
+      extra2:  null,
+      error:   null,
+    }),
+  },
+];
+ 
+// ─── TOOLTIP ──────────────────────────────────────────────────────────────────
+ 
+function StatusTooltip({ day, service, mouseX, mouseY }) {
+  const details  = service.getDetails(day);
+  const health   = day.health[service.healthKey];
+  const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
+  const barColor = HEALTH_COLORS[health];
+ 
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    // Use noon UTC to avoid date-rollover from timezone offsets
+    const d = new Date(`${iso}T12:00:00Z`);
+    return d.toLocaleDateString('en-US', {
+      day: 'numeric', month: 'short', year: 'numeric',
+    });
+  };
+ 
+  // Keep tooltip inside viewport
+  const TW = 270;
+  const safeX = Math.min(
+    Math.max(mouseX - TW / 2, 8),
+    (typeof window !== 'undefined' ? window.innerWidth : 1200) - TW - 8
+  );
+ 
+  return (
+    <div
+      style={{
+        position:    'fixed',
+        left:        safeX,
+        top:         mouseY - 8,
+        transform:   'translateY(-100%)',
+        zIndex:      2000,
+        width:       TW,
+        background:  'var(--bg2)',
+        border:      '1px solid var(--border2)',
+        borderTop:   `2px solid ${barColor}`,
+        borderRadius: 3,
+        padding:     '10px 14px',
+        boxShadow:   '0 12px 32px rgba(0,0,0,0.7)',
+        pointerEvents: 'none',
+        fontFamily:  'var(--font-mono)',
+      }}
+    >
+      {/* Date */}
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-bright)', marginBottom: 5 }}>
+        {fmtDate(day.date)}
+      </div>
+ 
+      {/* Health badge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+        <div style={{
+          padding: '1px 7px', borderRadius: 2, fontSize: 9, fontWeight: 700,
+          background: `${barColor}20`, color: barColor,
+          border: `1px solid ${barColor}50`, textTransform: 'uppercase', letterSpacing: '0.08em',
+        }}>
+          {hlMeta.icon} {hlMeta.label}
+        </div>
+      </div>
+ 
+      {/* Summary */}
+      <div style={{ fontSize: 10, color: 'var(--text)', marginBottom: details.rows ? 3 : 0 }}>
+        {details.summary}
+      </div>
+ 
+      {/* Row counts vs expected */}
+      {details.rows && (
+        <div style={{ fontSize: 9, color: 'var(--text-dim)', marginBottom: 2 }}>
+          {details.rows}
+          {service.expectedRows && (
+            <span style={{
+              marginLeft: 6,
+              color: day[service.healthKey === 'collection' ? 'forecast_rows' : 'shadow_rows'] / service.expectedRows >= 0.85
+                ? 'var(--green)' : 'var(--amber)',
+              fontSize: 9,
+            }}>
+              ({((
+                (service.healthKey === 'collection' ? day.forecast_rows : day.shadow_rows)
+                / service.expectedRows
+              ) * 100).toFixed(0)}%)
+            </span>
+          )}
+        </div>
+      )}
+ 
+      {/* Extra info */}
+      {details.extra && (
+        <div style={{ fontSize: 9, color: 'var(--amber)', marginTop: 3 }}>
+          {details.extra}
+        </div>
+      )}
+      {details.extra2 && (
+        <div style={{ fontSize: 9, color: 'var(--green)', marginTop: 2 }}>
+          {details.extra2}
+        </div>
+      )}
+ 
+      {/* Error box */}
+      {details.error && (
+        <div style={{
+          marginTop: 7, padding: '5px 8px',
+          background: 'rgba(232,64,64,0.08)', border: '1px solid rgba(232,64,64,0.2)',
+          borderRadius: 2, fontSize: 9, color: 'var(--red)', lineHeight: 1.5,
+          wordBreak: 'break-word',
+        }}>
+          {details.error}
+        </div>
+      )}
+ 
+      {/* RELATED block (mimics Anthropic style) */}
+      {(details.extra || details.error) && (
+        <div style={{
+          marginTop: 8, paddingTop: 7,
+          borderTop: '1px solid var(--border)',
+          fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase',
+          letterSpacing: '0.1em',
+        }}>
+          Related
+        </div>
+      )}
+    </div>
+  );
+}
+ 
+// ─── SINGLE SERVICE ROW ───────────────────────────────────────────────────────
+ 
+function StatusServiceRow({ service, days, onBarEnter, onBarLeave }) {
+  // Overall status: based on last 7 days
+  const recentDays = (days || []).slice(-7);
+  const hasFailure  = recentDays.some(d => d.health[service.healthKey] === 'failed');
+  const hasDegraded = recentDays.some(d => d.health[service.healthKey] === 'degraded');
+  const overallStatus = hasFailure
+    ? { label: 'Degraded Performance', color: 'var(--red)' }
+    : hasDegraded
+      ? { label: 'Degraded Performance', color: 'var(--amber)' }
+      : { label: 'Operational', color: 'var(--green)' };
+ 
+  // Uptime % across non-no_data days
+  const activeDays   = (days || []).filter(d => d.health[service.healthKey] !== 'no_data');
+  const healthyDays  = activeDays.filter(d => d.health[service.healthKey] === 'healthy').length;
+  const uptimePct    = activeDays.length > 0
+    ? (healthyDays / activeDays.length * 100).toFixed(2)
+    : null;
+ 
+  return (
+    <div style={{ marginBottom: 28 }}>
+      {/* Label row */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        marginBottom: 6,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-bright)' }}>
+            {service.label}
+          </span>
+          <span style={{
+            fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+          }}>
+            {service.desc}
+          </span>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 600, color: overallStatus.color, flexShrink: 0, marginLeft: 16 }}>
+          {overallStatus.label}
+        </span>
+      </div>
+ 
+      {/* Bar chart */}
+      <div style={{
+        display: 'flex', gap: 1, height: 30, borderRadius: 2, overflow: 'hidden',
+      }}>
+        {(days || Array(90).fill(null)).map((day, i) => {
+          const health = day ? day.health[service.healthKey] : 'no_data';
+          return (
+            <div
+              key={day?.date || i}
+              style={{
+                flex: 1, minWidth: 0,
+                background: HEALTH_COLORS[health] || HEALTH_COLORS.no_data,
+                cursor: day ? 'default' : 'default',
+                transition: 'filter 0.08s',
+              }}
+              onMouseEnter={day ? (e) => onBarEnter(e, day, service) : undefined}
+              onMouseLeave={day ? onBarLeave : undefined}
+            />
+          );
+        })}
+      </div>
+ 
+      {/* Timeline labels */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        marginTop: 4, alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>90 days ago</span>
+        {uptimePct !== null && (
+          <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>
+            {uptimePct}% uptime
+          </span>
+        )}
+        <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>Today</span>
+      </div>
+    </div>
+  );
+}
+ 
+// ─── MAIN TAB COMPONENT ───────────────────────────────────────────────────────
+ 
+function StatusTimelineTab() {
+  const [days,    setDays]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [tooltip, setTooltip] = useState(null); // { day, service, mouseX, mouseY }
+ 
+  useEffect(() => {
+    fetch('/api/status-timeline')
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d  => { setDays(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []);
+ 
+  const handleBarEnter = (e, day, service) => {
+    setTooltip({
+      day,
+      service,
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+    });
+  };
+ 
+  const handleBarLeave = () => setTooltip(null);
+ 
+  // Summary stats across all services for the header banner
+  const recentDays = (days || []).slice(-1); // just today
+  const overallHealthy = recentDays.length > 0 && STATUS_SERVICES.every(
+    s => recentDays[0].health[s.healthKey] === 'healthy'
+  );
+ 
+  return (
+    <div className="section fadein" style={{ maxWidth: 1100 }}>
+ 
+      {/* Page header */}
+      <div className="section-header">
+        <span className="section-title">System Status — 90 Day History</span>
+        <span className="section-sub">Per-table health · expected vs actual rows</span>
+      </div>
+ 
+      {/* Overall status banner */}
+      {!loading && !error && days && (
+        <div style={{
+          marginBottom: 24, padding: '10px 16px',
+          background:  overallHealthy ? 'rgba(46,192,122,0.06)' : 'rgba(245,166,35,0.06)',
+          border:      `1px solid ${overallHealthy ? 'rgba(46,192,122,0.25)' : 'rgba(245,166,35,0.25)'}`,
+          borderLeft:  `3px solid ${overallHealthy ? 'var(--green)' : 'var(--amber)'}`,
+          borderRadius: 3,
+          display:     'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: overallHealthy ? 'var(--green)' : 'var(--amber)',
+            boxShadow:  `0 0 6px ${overallHealthy ? 'var(--green)' : 'var(--amber)'}`,
+            flexShrink: 0, animation: 'pulse 2s ease-in-out infinite',
+          }}/>
+          <span style={{ fontSize: 11, fontWeight: 600, color: overallHealthy ? 'var(--green)' : 'var(--amber)' }}>
+            {overallHealthy ? 'All systems operational' : 'Some systems degraded — hover bars for details'}
+          </span>
+          {days.length > 0 && (
+            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-dim)' }}>
+              Earliest record:{' '}
+              {days.find(d => d.forecast_rows > 0 || d.shadow_rows > 0 || d.obs_rows > 0)?.date || '—'}
+            </span>
+          )}
+        </div>
+      )}
+ 
+      {/* Loading state */}
+      {loading && (
+        <div style={{ padding: '40px 0', textAlign: 'center' }}>
+          {[0,1,2].map(i => (
+            <div key={i} className="loading-dot" style={{
+              display: 'inline-block', margin: '0 4px',
+              animationDelay: `${i * 0.2}s`,
+            }}/>
+          ))}
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 10, letterSpacing: '0.1em' }}>
+            Querying 90-day health history…
+          </div>
+        </div>
+      )}
+ 
+      {/* Error state */}
+      {!loading && error && (
+        <div style={{
+          padding: '16px', background: 'var(--red-dim)',
+          border: '1px solid rgba(232,64,64,0.3)', borderRadius: 3,
+          fontSize: 10, color: 'var(--red)',
+        }}>
+          Failed to load status data: {error}
+        </div>
+      )}
+ 
+      {/* Service rows */}
+      {!loading && !error && days && (
+        <>
+          <div style={{ marginBottom: 8 }}>
+            {STATUS_SERVICES.map(service => (
+              <StatusServiceRow
+                key={service.id}
+                service={service}
+                days={days}
+                onBarEnter={handleBarEnter}
+                onBarLeave={handleBarLeave}
+              />
+            ))}
+          </div>
+ 
+          {/* Legend */}
+          <div style={{
+            display: 'flex', gap: 20, alignItems: 'center',
+            paddingTop: 12, borderTop: '1px solid var(--border)',
+            flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Legend:
+            </span>
+            {Object.entries(HEALTH_LABELS).map(([key, meta]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{
+                  width: 14, height: 14, borderRadius: 2,
+                  background: HEALTH_COLORS[key],
+                  border: key === 'no_data' ? '1px solid var(--border2)' : 'none',
+                }}/>
+                <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{meta.label}</span>
+              </div>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-dim)' }}>
+              Hover any bar for details
+            </span>
+          </div>
+ 
+          {/* Raw counts table (last 7 days) — useful for debugging */}
+          <details style={{ marginTop: 20 }}>
+            <summary style={{
+              fontSize: 9, color: 'var(--text-dim)', cursor: 'pointer',
+              textTransform: 'uppercase', letterSpacing: '0.1em',
+              padding: '6px 0', borderTop: '1px solid var(--border)', userSelect: 'none',
+            }}>
+              Raw counts — last 7 days
+            </summary>
+            <div style={{ marginTop: 8, overflowX: 'auto' }}>
+              <table className="data-table" style={{ minWidth: 700 }}>
+                <thead>
+                  <tr>
+                    {['Date','Forecast Rows','Shadow Rows','Obs Rows','Brier Rows','METAR Stns','Alerts (crit)','Morning','Night','Market'].map(h => (
+                      <th key={h}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {days.slice(-7).reverse().map(d => (
+                    <tr key={d.date}>
+                      <td style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{d.date}</td>
+                      <td style={{ color: d.forecast_rows >= 600 ? 'var(--green)' : 'var(--amber)' }}>
+                        {d.forecast_rows.toLocaleString()}
+                      </td>
+                      <td style={{ color: d.shadow_rows >= 500 ? 'var(--green)' : d.shadow_rows > 0 ? 'var(--amber)' : 'var(--text-dim)' }}>
+                        {d.shadow_rows.toLocaleString()}
+                      </td>
+                      <td style={{ color: d.obs_rows >= 18 ? 'var(--green)' : d.obs_rows > 0 ? 'var(--amber)' : 'var(--text-dim)' }}>
+                        {d.obs_rows}
+                        {d.amendments > 0 && <span style={{ color: 'var(--amber)', marginLeft: 4 }}>+{d.amendments}△</span>}
+                      </td>
+                      <td style={{ color: d.brier_rows > 0 ? 'var(--green)' : 'var(--text-dim)' }}>
+                        {d.brier_rows}
+                      </td>
+                      <td style={{ color: d.metar_stations >= 18 ? 'var(--green)' : d.metar_stations > 0 ? 'var(--amber)' : 'var(--text-dim)' }}>
+                        {d.metar_stations}
+                      </td>
+                      <td>
+                        {d.total_alerts > 0
+                          ? <span style={{ color: d.critical_alerts > 0 ? 'var(--red)' : 'var(--amber)' }}>
+                              {d.total_alerts} ({d.critical_alerts})
+                            </span>
+                          : <span style={{ color: 'var(--text-dim)' }}>—</span>
+                        }
+                      </td>
+                      {[d.morning_status, d.night_status, d.market_status].map((s, i) => (
+                        <td key={i}>
+                          {s
+                            ? <span className={`tag ${s.toLowerCase()}`}>{s}</span>
+                            : <span style={{ color: 'var(--text-dim)' }}>—</span>
+                          }
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      )}
+ 
+      {/* Tooltip rendered last so it floats above everything */}
+      {tooltip && (
+        <StatusTooltip
+          day={tooltip.day}
+          service={tooltip.service}
+          mouseX={tooltip.mouseX}
+          mouseY={tooltip.mouseY}
+        />
+      )}
+    </div>
   );
 }
