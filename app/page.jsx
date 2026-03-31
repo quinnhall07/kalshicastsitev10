@@ -348,6 +348,8 @@ const EMPTY_STATE = {
     bankroll: 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
     mdd_alltime: 0, mdd_rolling_90: 0, cal: 0,
     n_bets_total: 0, n_bets_won: 0, n_bets_lost: 0,
+    // Add the new fields
+    sr_dollar: 0, sr_simple: 0, sharpe_rolling_30: 0, fdr: 0, eur: 0, market_cal: 0,
   },
   pipeline_runs: [],
   open_positions: [],
@@ -883,6 +885,37 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
           <div className="stat-sub">{s.n_bets_won}W / {s.n_bets_lost}L</div>
         </div>
       </div>
+      {/* NEW: Performance & Success Measures Grid */}
+      <div className="section-header" style={{ marginTop: 8 }}>
+        <span className="section-title">Performance Measures</span>
+      </div>
+      <div className="stat-grid" style={{ marginBottom: 16 }}>
+        <div className="stat-box">
+          <div className="stat-label">Sharpe Ratio (30d)</div>
+          <div className="stat-val" style={{color: s.sharpe_rolling_30 >= 1 ? 'var(--green)' : 'var(--text-bright)'}}>
+            {s.sharpe_rolling_30?.toFixed(3) || '0.000'}
+          </div>
+          <div className="stat-sub">Simple SR: {s.sr_simple?.toFixed(3) || '0.000'}</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">CAL (Calibration)</div>
+          <div className="stat-val" style={{color: s.cal <= 0.05 ? 'var(--green)' : 'var(--text-bright)'}}>
+            {s.cal?.toFixed(4) || '0.0000'}
+          </div>
+          <div className="stat-sub">Market CAL: {s.market_cal?.toFixed(4) || '—'}</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">FDR</div>
+          <div className="stat-val">{s.fdr?.toFixed(3) || '0.000'}</div>
+          <div className="stat-sub">Fractional Drawdown Ratio</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">EUR</div>
+          <div className="stat-val">{s.eur?.toFixed(3) || '0.000'}</div>
+          <div className="stat-sub">Expected Utility Ratio</div>
+        </div>
+      </div>
+      <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
       <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
           <span style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Max Drawdown (All-Time)</span>
