@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
-// ─── MATH HELPERS (used by DistributionContent) ───────────────────────────────
+// ─── MATH HELPERS ─────────────────────────────────────────────────────────────
+// Used for client-side skew-normal rendering in DistributionModal.
+
 function erf(x) {
   const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
   const sign = x < 0 ? -1 : 1;
@@ -19,15 +21,253 @@ function skewnormPDF(x,alpha,xi,omega) {
   return (2/omega)*normPDF(z)*normCDF(alpha*z);
 }
 
-// ─── NEXT.JS CONFIG ───────────────────────────────────────────────────────────
-// Set NEXT_PUBLIC_GH_REPO=quinnhall07/kalshicastdata in your .env.local
-const GH_REPO = process.env.NEXT_PUBLIC_GH_REPO || 'quinnhall07/kalshicastdata';
+// ─── DETERMINISTIC HASH ───────────────────────────────────────────────────────
+const hash = (s) => { let h=0; for(let c of s){h=Math.imul(31,h)+c.charCodeAt(0)|0} return (h>>>0)/4294967295; };
 
-// ─── MODEL COLORS & SOURCES ───────────────────────────────────────────────────
+// ─── MOCK DATA ────────────────────────────────────────────────────────────────
+
+const STATIONS_LIST = [
+  {id:"KNYC",city:"New York"},{id:"KMIA",city:"Miami"},{id:"KMSY",city:"New Orleans"},
+  {id:"KPHL",city:"Philadelphia"},{id:"KMDW",city:"Chicago"},{id:"KLAX",city:"Los Angeles"},
+  {id:"KAUS",city:"Austin"},{id:"KDEN",city:"Denver"},{id:"KSEA",city:"Seattle"},
+  {id:"KLAS",city:"Las Vegas"},{id:"KSFO",city:"San Francisco"},{id:"KDCA",city:"Washington DC"},
+  {id:"KBOS",city:"Boston"},{id:"KATL",city:"Atlanta"},{id:"KPHX",city:"Phoenix"},
+  {id:"KSAT",city:"San Antonio"},{id:"KDFW",city:"Dallas"},{id:"KMSP",city:"Minneapolis"},
+  {id:"KHOU",city:"Houston"},{id:"KOKC",city:"Oklahoma City"},
+];
+
+const MOCK = {
+  system: {
+    trading_halted:false,db_connected:true,last_checked:"2026-03-29T14:03:00Z",
+    bankroll:1000.00,portfolio_value:1043.50,daily_pnl:+12.40,cumulative_pnl:+43.50,
+    mdd_alltime:0.048,mdd_rolling_90:0.031,cal:0.0412,n_bets_total:47,n_bets_won:29,n_bets_lost:18,
+  },
+  pipeline_runs:[
+    {type:"morning",status:"OK",started:"2026-03-29T12:00:14Z",rows_daily:720,rows_hourly:17280,stations_ok:20,stations_fail:0},
+    {type:"night",status:"OK",started:"2026-03-29T06:01:02Z",rows_daily:0,rows_hourly:0,stations_ok:12,stations_fail:0},
+    {type:"market_open",status:"PARTIAL",started:"2026-03-29T14:00:44Z",rows_daily:0,rows_hourly:0,stations_ok:0,stations_fail:0},
+  ],
+  open_positions:[
+    {ticker:"KXHIGH-KNYC-20260330-B62",station:"KNYC",target_date:"2026-03-30",type:"HIGH",bin:"61.5–63.5°F",entry_price:0.28,contracts:12,p_win:0.341,order_type:"TAKER",s_tk_at_entry:2.1},
+    {ticker:"KXLOW-KMDW-20260330-B38",station:"KMDW",target_date:"2026-03-30",type:"LOW",bin:"37.5–39.5°F",entry_price:0.41,contracts:8,p_win:0.463,order_type:"MAKER",s_tk_at_entry:1.8},
+    {ticker:"KXHIGH-KLAS-20260331-B82",station:"KLAS",target_date:"2026-03-31",type:"HIGH",bin:"81.5–83.5°F",entry_price:0.19,contracts:20,p_win:0.247,order_type:"TAKER",s_tk_at_entry:3.2},
+    {ticker:"KXHIGH-KDEN-20260330-B54",station:"KDEN",target_date:"2026-03-30",type:"HIGH",bin:"53.5–55.5°F",entry_price:0.33,contracts:6,p_win:0.398,order_type:"MAKER",s_tk_at_entry:2.6},
+  ],
+  recent_bets:[
+    {ticker:"KXHIGH-KNYC-20260328-B58",station:"KNYC",target_date:"2026-03-28",type:"HIGH",bin:"57.5–59.5°F",entry_price:0.37,contracts:10,outcome:1,pnl_net:+58.10,order_type:"TAKER",p_win_at_entry:0.451},
+    {ticker:"KXLOW-KATL-20260328-B44",station:"KATL",target_date:"2026-03-28",type:"LOW",bin:"43.5–45.5°F",entry_price:0.52,contracts:5,outcome:0,pnl_net:-27.30,order_type:"MAKER",p_win_at_entry:0.558},
+    {ticker:"KXHIGH-KLAS-20260328-B78",station:"KLAS",target_date:"2026-03-28",type:"HIGH",bin:"77.5–79.5°F",entry_price:0.61,contracts:15,outcome:1,pnl_net:+56.93,order_type:"TAKER",p_win_at_entry:0.712},
+    {ticker:"KXHIGH-KMDW-20260328-B45",station:"KMDW",target_date:"2026-03-28",type:"HIGH",bin:"44.5–46.5°F",entry_price:0.24,contracts:8,outcome:0,pnl_net:-19.20,order_type:"TAKER",p_win_at_entry:0.282},
+    {ticker:"KXLOW-KSEA-20260328-B40",station:"KSEA",target_date:"2026-03-28",type:"LOW",bin:"39.5–41.5°F",entry_price:0.48,contracts:6,outcome:1,pnl_net:+29.57,order_type:"MAKER",p_win_at_entry:0.561},
+    {ticker:"KXHIGH-KDFW-20260327-B72",station:"KDFW",target_date:"2026-03-27",type:"HIGH",bin:"71.5–73.5°F",entry_price:0.55,contracts:10,outcome:1,pnl_net:+37.75,order_type:"TAKER",p_win_at_entry:0.641},
+  ],
+  alerts:[
+    {id:"a1",type:"MISSED_PIPELINE_RUN",severity:0.8,ts:"2026-03-29T06:02:00Z",station:null,resolved:false,detail:"market_open run expected at 14:00 UTC; no run detected within 25h window"},
+    {id:"a2",type:"METAR_STALE",severity:0.5,ts:"2026-03-29T13:45:00Z",station:"KOKC",resolved:false,detail:"KOKC METAR last observed >120 min ago; truncation disabled for this station"},
+    {id:"a3",type:"BSS_COLUMN_DEGRADATION",severity:0.7,ts:"2026-03-29T06:05:00Z",station:null,resolved:true,detail:"lead_bracket=h5 mean BSS=0.021 across 7 stations — below bss_exit threshold"},
+    {id:"a4",type:"BSS_DIAGONAL_DEGRADATION",severity:0.4,ts:"2026-03-28T06:10:00Z",station:"KMSP",resolved:true,detail:"KMSP: monotone BSS decrease across h1→h5, slope=-0.012/bracket"},
+  ],
+  params:[
+    {key:"ibe.kcv_lookback_days",value:"7",dtype:"int",description:"KCV lookback days"},
+    {key:"ibe.kcv_veto_threshold",value:"4.0",dtype:"float",description:"Veto if KCV_normalized > threshold"},
+    {key:"ibe.mpds_veto_threshold",value:"0.12",dtype:"float",description:"Veto if |MPDS| > threshold"},
+    {key:"ibe.composite_weights",value:"[0.25, 0.35, 0.15, 0.15, 0.10]",dtype:"json",description:"IBE exponent weights"},
+    {key:"gate.ev_min_fraction",value:"0.025",dtype:"float",description:"Min EV_net as fraction of bankroll"},
+    {key:"gate.bss_enter",value:"0.07",dtype:"float",description:"Skill gate entry threshold"},
+    {key:"gate.bss_exit",value:"0.03",dtype:"float",description:"Skill gate exit threshold"},
+    {key:"gate.spread_max",value:"4.0",dtype:"float",description:"Reject if spread > spread_max (°F)"},
+    {key:"gate.lead_ceiling_hours",value:"72.0",dtype:"float",description:"Max lead hours for bets"},
+    {key:"kelly.fraction_cap",value:"0.10",dtype:"float",description:"Max single-bet Kelly fraction"},
+    {key:"kelly.min_bet_fraction",value:"0.025",dtype:"float",description:"Min bet as fraction of bankroll"},
+    {key:"kelly.jitter_pct",value:"0.03",dtype:"float",description:"Uniform jitter ±%"},
+    {key:"kalman.R_default",value:"0.25",dtype:"float",description:"Base measurement noise (°F²)"},
+    {key:"kalman.beta",value:"2.0",dtype:"float",description:"R_k inflation when top model disagrees"},
+    {key:"ensemble.entropy_lambda",value:"0.10",dtype:"float",description:"Entropy regularization lambda"},
+    {key:"ensemble.staleness_tau",value:"3.0",dtype:"float",description:"Staleness decay tau (days)"},
+    {key:"drawdown.mdd_safe",value:"0.10",dtype:"float",description:"D_scale begins shrinking at this MDD"},
+    {key:"drawdown.mdd_halt",value:"0.20",dtype:"float",description:"D_scale = 0 at this MDD"},
+    {key:"metar.truncation_enabled",value:"1",dtype:"int",description:"Master switch for intraday truncation"},
+    {key:"pipeline.max_workers",value:"10",dtype:"int",description:"ThreadPoolExecutor worker count"},
+  ],
+  bss_matrix: (() => {
+    const stations=STATIONS_LIST.map(s=>s.id),brackets=["h1","h2","h3","h4","h5"],types=["HIGH","LOW"];
+    const rows=[];
+    for(const st of stations) for(const tt of types) for(const lb of brackets) {
+      const bss=hash(`${st}${tt}${lb}`)*0.18-0.02;
+      rows.push({station:st,type:tt,bracket:lb,bss:+bss.toFixed(4),qualified:bss>=0.07,
+        n_observations:Math.floor(hash(st+tt+lb+'n')*80+20),
+        bs_model:+(hash(st+tt+lb+'bsm')*0.05+0.02).toFixed(5),
+        bs_baseline_1:0.0667,active_bets:0});
+    }
+    return rows;
+  })(),
+  stations:[
+    {id:"KNYC",city:"New York",metar_age_min:18,obs_count:47,is_active:true},
+    {id:"KMIA",city:"Miami",metar_age_min:22,obs_count:51,is_active:true},
+    {id:"KMSY",city:"New Orleans",metar_age_min:135,obs_count:38,is_active:true},
+    {id:"KPHL",city:"Philadelphia",metar_age_min:31,obs_count:44,is_active:true},
+    {id:"KMDW",city:"Chicago",metar_age_min:19,obs_count:52,is_active:true},
+    {id:"KLAX",city:"Los Angeles",metar_age_min:25,obs_count:49,is_active:true},
+    {id:"KAUS",city:"Austin",metar_age_min:40,obs_count:46,is_active:true},
+    {id:"KDEN",city:"Denver",metar_age_min:55,obs_count:43,is_active:true},
+    {id:"KSEA",city:"Seattle",metar_age_min:28,obs_count:50,is_active:true},
+    {id:"KLAS",city:"Las Vegas",metar_age_min:12,obs_count:55,is_active:true},
+    {id:"KSFO",city:"San Francisco",metar_age_min:33,obs_count:41,is_active:true},
+    {id:"KDCA",city:"Washington DC",metar_age_min:17,obs_count:48,is_active:true},
+    {id:"KBOS",city:"Boston",metar_age_min:21,obs_count:53,is_active:true},
+    {id:"KATL",city:"Atlanta",metar_age_min:44,obs_count:42,is_active:true},
+    {id:"KPHX",city:"Phoenix",metar_age_min:16,obs_count:57,is_active:true},
+    {id:"KSAT",city:"San Antonio",metar_age_min:38,obs_count:45,is_active:true},
+    {id:"KDFW",city:"Dallas",metar_age_min:27,obs_count:50,is_active:true},
+    {id:"KMSP",city:"Minneapolis",metar_age_min:61,obs_count:40,is_active:true},
+    {id:"KHOU",city:"Houston",metar_age_min:34,obs_count:47,is_active:true},
+    {id:"KOKC",city:"Oklahoma City",metar_age_min:148,obs_count:37,is_active:true},
+  ],
+  kalman_states: STATIONS_LIST.flatMap(st=>{
+    const h1=hash(st.id+'H'), h2=hash(st.id+'L');
+    return [
+      {station_id:st.id,city:st.city,target_type:'HIGH',
+       b_k:+(((h1*2-1)*3.2).toFixed(2)),u_k:+((h1*2.8+0.15).toFixed(2)),
+       q_base:+((h1*0.04+0.01).toFixed(3)),state_version:Math.floor(h1*120)+10,
+       last_observation_date:'2026-03-29',last_updated_utc:'2026-03-29T06:04:11Z'},
+      {station_id:st.id,city:st.city,target_type:'LOW',
+       b_k:+(((h2*2-1)*2.8).toFixed(2)),u_k:+((h2*2.5+0.2).toFixed(2)),
+       q_base:+((h2*0.035+0.01).toFixed(3)),state_version:Math.floor(h2*100)+15,
+       last_observation_date:'2026-03-29',last_updated_utc:'2026-03-29T06:04:11Z'},
+    ];
+  }),
+};
+
+// ─── ON-DEMAND MOCK GENERATORS ────────────────────────────────────────────────
+
 const MODEL_COLORS = {
   NWS:'#00d4d8',OME_BASE:'#f5a623',OME_GFS:'#4a90d9',OME_EC:'#2ec07a',
   OME_ICON:'#a855f7',OME_GEM:'#14b8a6',WAPI:'#f97316',VCR:'#ec4899',TOM:'#eab308',
 };
+const SOURCES = ['NWS','OME_BASE','OME_GFS','OME_EC','OME_ICON','OME_GEM','WAPI','VCR','TOM'];
+
+function mockEnsembleWeights(stationId) {
+  const raw = SOURCES.map(s=>hash(stationId+s)*hash(stationId+s+'w')+0.02);
+  const total = raw.reduce((a,b)=>a+b,0);
+  return {
+    station_id:stationId,
+    weights: SOURCES.map((src,i)=>({
+      source_id:src,lead_bracket:'h2',
+      w_m:+(raw[i]/total).toFixed(4),
+      bss_m:+(hash(stationId+src+'bss')*0.14+0.01).toFixed(4),
+      is_stale:hash(stationId+src+'stale')>0.88,
+      stale_decay_factor:+(1-hash(stationId+src+'decay')*0.25).toFixed(3),
+    })).sort((a,b)=>b.w_m-a.w_m),
+  };
+}
+
+function mockShadowBook(ticker) {
+  const h = hash(ticker);
+  const stationMatch = STATIONS_LIST.find(s=>ticker.includes(s.id)) || STATIONS_LIST[0];
+  const isHigh = ticker.includes('KXHIGH') || ticker.includes('HIGH');
+  const baseTemp = isHigh
+    ? 45 + hash(stationMatch.id+'base')*55
+    : 25 + hash(stationMatch.id+'base')*45;
+  const mu = +(baseTemp + (h*2-1)*5).toFixed(1);
+  const sigma = +(1.8 + hash(ticker+'s')*2.5).toFixed(2);
+  const g1_s = +((hash(ticker+'g1')*2-1)*0.35).toFixed(3);
+  const delta_sq = Math.min(0.98,(Math.abs(g1_s)*2/(4-Math.PI))**(2/3)*Math.PI/2/(1+(Math.abs(g1_s)*2/(4-Math.PI))**(2/3)));
+  const delta = Math.sign(g1_s)*Math.sqrt(delta_sq);
+  const alpha_s = +( delta/Math.sqrt(1-delta*delta) ).toFixed(3);
+  const omega_denom = Math.max(0.01, 1-2*delta*delta/Math.PI);
+  const omega_s = +(sigma/Math.sqrt(omega_denom)).toFixed(2);
+  const xi_s = +(mu - omega_s*delta*Math.sqrt(2/Math.PI)).toFixed(2);
+
+  const binWidth = 2;
+  const center = Math.round(mu/binWidth)*binWidth;
+  const bins = [];
+  // Low tail
+  bins.push({ticker:ticker+'_T_LO',bin_lower:-999,bin_upper:center-7*binWidth-0.5,p_win:0.008,is_active:false,metar_truncated:false});
+  for(let i=-6;i<=6;i++){
+    const lo = center+i*binWidth-0.5, hi=lo+binWidth;
+    const zlo=(lo-mu)/sigma, zhi=(hi-mu)/sigma;
+    const p = Math.max(0.001, normCDF(zhi)-normCDF(zlo));
+    const binTicker = `${isHigh?'KXHIGH':'KXLOW'}-${stationMatch.id}-PAPER-B${Math.round(center+i*binWidth)}`;
+    bins.push({ticker:binTicker,bin_lower:lo,bin_upper:hi,p_win:+p.toFixed(4),is_active:i===0,metar_truncated:false});
+  }
+  // High tail
+  bins.push({ticker:ticker+'_T_HI',bin_lower:center+7*binWidth-0.5,bin_upper:999,p_win:0.008,is_active:false,metar_truncated:false});
+  // Normalize
+  const total=bins.reduce((a,b)=>a+b.p_win,0);
+  bins.forEach(b=>{ b.p_win = +(b.p_win/total).toFixed(4); });
+
+  return {
+    ticker,station_id:stationMatch.id,target_date:'2026-03-30',
+    target_type:isHigh?'HIGH':'LOW',
+    mu,sigma_eff:sigma,g1_s,alpha_s,xi_s,omega_s,
+    metar_truncated:false,t_obs_max:null,top_model_id:'OME_EC',bins,
+  };
+}
+
+function mockIBESignals(ticker) {
+  const h = hash(ticker);
+  const kcv_norm = +(0.5+h*2.5).toFixed(3);
+  const mpds_k = +((hash(ticker+'m')*2-1)*0.08).toFixed(5);
+  const hmas = +(0.4+hash(ticker+'h')*0.6).toFixed(4);
+  const fct = +((hash(ticker+'f')*2-1)*0.8).toFixed(4);
+  const scas = +(hash(ticker+'sc')*0.5).toFixed(4);
+  const kcv_mod = +(Math.max(0.5,Math.min(1.25,1-0.25*(kcv_norm-1)))).toFixed(4);
+  const mpds_mod = mpds_k>=0 ? +(Math.max(0.5,1-Math.abs(mpds_k)*5)).toFixed(4) : +(Math.max(0.3,1-Math.abs(mpds_k)*8)).toFixed(4);
+  const hmas_mod = +(0.7+0.6*hmas).toFixed(4);
+  const fct_mod = fct<0 ? +(Math.min(1.4,1-fct*0.4)).toFixed(4) : +(Math.max(0.5,1-fct*0.6)).toFixed(4);
+  const scas_mod = +(Math.max(0.6,1-0.15*scas)).toFixed(4);
+  const mods=[kcv_mod,mpds_mod,hmas_mod,fct_mod,scas_mod];
+  const weights=[0.25,0.35,0.15,0.15,0.10];
+  const composite = +Math.exp(mods.reduce((a,m,i)=>a+weights[i]*Math.log(Math.max(m,1e-6)),0)).toFixed(4);
+  return {
+    kcv_norm,kcv_mod,mpds_k,mpds_mod,hmas,hmas_mod,fct,fct_mod,scas,scas_mod,
+    composite,veto_triggered:false,veto_reason:null,recorded_at:'2026-03-29T14:02:00Z',
+  };
+}
+
+function mockDecisionAudit(ticker) {
+  const h = hash(ticker), stationMatch=STATIONS_LIST.find(s=>ticker.includes(s.id))||STATIONS_LIST[0];
+  const ibe = mockIBESignals(ticker);
+  const sb = mockShadowBook(ticker);
+  const bss = +(hash(ticker+'bss')*0.12+0.04).toFixed(4);
+  const phi = +(Math.min(1.0,bss/0.25)).toFixed(4);
+  const f_star = +(0.04+h*0.07).toFixed(4);
+  const f_phi = +(f_star*phi).toFixed(4);
+  const f_ibe = +(f_phi*ibe.composite).toFixed(4);
+  const gamma = +(0.7+h*0.3).toFixed(4);
+  const f_gamma = +(f_ibe*gamma).toFixed(4);
+  const d_scale = 1.0;
+  const f_final = +(f_gamma*(1+(hash(ticker+'jit')*0.06-0.03))).toFixed(4);
+  const contracts = Math.max(1,Math.floor(f_final*1000/28));
+  return {
+    ticker,
+    l2_ensemble:{
+      f_tk_top:sb.mu+(hash(ticker+'ft')*2-1)*0.5,top_model_id:'OME_EC',
+      f_bar_tk:sb.mu+(hash(ticker+'fb')*2-1)*0.3,
+      s_tk:+(1.5+hash(ticker+'stk')*2).toFixed(2),s_weighted_tk:+(1.2+hash(ticker+'swt')*1.5).toFixed(2),
+      sigma_eff:sb.sigma_eff,m_k:Math.floor(hash(ticker+'mk')*4)+6,
+      weight_json:{OME_EC:0.24,NWS:0.18,OME_GFS:0.15,OME_BASE:0.13,OME_ICON:0.12,OME_GEM:0.08,WAPI:0.05,VCR:0.03,TOM:0.02},
+      stale_model_ids:null,b_k:MOCK.kalman_states.find(k=>k.station_id===stationMatch.id&&k.target_type==='HIGH')?.b_k||0.3,
+      u_k:MOCK.kalman_states.find(k=>k.station_id===stationMatch.id&&k.target_type==='HIGH')?.u_k||0.8,
+    },
+    l3_pricing:{
+      mu:sb.mu,g1_s:sb.g1_s,alpha_s:sb.alpha_s,xi_s:sb.xi_s,omega_s:sb.omega_s,
+      p_win:sb.bins.find(b=>b.is_active)?.p_win||0.3,metar_truncated:false,t_obs_max:null,
+    },
+    l4_execution:{
+      gate_flags:{edge:true,spread:true,skill:true,lead:true,reserved:true},
+      f_star,f_op:f_phi,f_final,ibe_composite:ibe.composite,ibe_veto:false,
+      d_scale,gamma_convergence:gamma,contract_price:0.28,
+      ev_net:+((sb.bins.find(b=>b.is_active)?.p_win||0.3-0.28)*100-2).toFixed(2),
+    },
+    _phi:phi,_bss:bss,_f_phi:f_phi,_f_ibe:f_ibe,_f_gamma:f_gamma,_contracts:contracts,
+  };
+}
+
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+// Stripped out import.meta to allow Chrome JSX previewers to parse the file
+const API_BASE = (typeof process !== 'undefined' && process.env?.VITE_API_BASE) || '';
+const GH_REPO = (typeof process !== 'undefined' && process.env?.VITE_GH_REPO) || '';
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const css = `
@@ -45,8 +285,6 @@ const css = `
     --font-mono: 'IBM Plex Mono', monospace; --font-sans: 'IBM Plex Sans', sans-serif;
     --purple: #a855f7; --teal: #14b8a6;
   }
-
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
 
   body { background:var(--bg0); color:var(--text); font-family:var(--font-mono); font-size:12px; line-height:1.5; overflow:hidden; }
   .shell { display:flex; flex-direction:column; height:100vh; width:100vw; background:var(--bg0); }
@@ -66,8 +304,6 @@ const css = `
   .status-badge.ok { background:var(--green-dim); color:var(--green); border:1px solid rgba(46,192,122,0.3); }
   .status-badge.warn { background:rgba(245,166,35,0.12); color:var(--amber); border:1px solid rgba(245,166,35,0.3); }
   .status-badge.error { background:var(--red-dim); color:var(--red); border:1px solid rgba(232,64,64,0.3); }
-  .status-badge.paper { background:rgba(0,212,216,0.1); color:var(--cyan); border:1px solid var(--cyan-dim); }
-  .status-badge.live-mode { background:rgba(46,192,122,0.15); color:var(--green); border:1px solid rgba(46,192,122,0.4); }
   .status-dot { width:5px; height:5px; border-radius:50%; }
   .status-dot.ok { background:var(--green); box-shadow:0 0 4px var(--green); animation:pulse 2s ease-in-out infinite; }
   .status-dot.warn { background:var(--amber); box-shadow:0 0 4px var(--amber); animation:pulse 1.5s ease-in-out infinite; }
@@ -168,7 +404,7 @@ const css = `
   .dp-key { font-size:10px; color:var(--text-dim); }
   .dp-val { font-size:11px; color:var(--text-bright); font-weight:500; }
 
-  /* STATION CARDS */
+  /* BSS STATION CARDS */
   .station-cards-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
   .station-card { background:var(--bg1); border:1px solid var(--border); border-radius:3px; overflow:hidden; cursor:default; transition:border-color 0.15s; padding:12px; position:relative; }
   .station-card.good { border-left:3px solid var(--green); }
@@ -193,7 +429,7 @@ const css = `
   .modal-skeleton { background:var(--bg2); border-radius:2px; animation:shimmer 1.2s ease-in-out infinite; }
   @keyframes shimmer { 0%,100%{opacity:0.4} 50%{opacity:0.8} }
 
-  /* ACTION BUTTONS */
+  /* ACTION BUTTONS in rows */
   .row-actions { display:flex; gap:4px; }
   .btn-sm { padding:1px 7px; border-radius:2px; font-family:var(--font-mono); font-size:9px; font-weight:600; cursor:pointer; border:none; text-transform:uppercase; letter-spacing:0.04em; transition:all 0.1s; }
   .btn-sm.cyan { background:rgba(0,212,216,0.1); color:var(--cyan); border:1px solid rgba(0,212,216,0.2); }
@@ -204,6 +440,12 @@ const css = `
   .btn-sm.green:hover { background:rgba(46,192,122,0.2); }
 
   /* MODELS TAB */
+  .kalman-grid { display:grid; grid-template-columns:120px repeat(20,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:3px; overflow:hidden; font-size:10px; }
+  .kalman-header { background:var(--bg2); padding:6px 4px; font-size:8px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim); text-align:center; white-space:nowrap; overflow:hidden; }
+  .kalman-label { background:var(--bg2); padding:6px 10px; font-size:10px; font-weight:600; color:var(--text-bright); display:flex; align-items:center; }
+  .kalman-cell { display:flex; align-items:center; justify-content:center; height:32px; font-size:10px; font-weight:600; transition:opacity 0.2s; position:relative; cursor:default; }
+
+  /* WEIGHT BAR */
   .weight-bar-container { display:flex; height:32px; border-radius:2px; overflow:hidden; border:1px solid var(--border); }
   .weight-segment { display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:600; color:rgba(0,0,0,0.7); transition:all 0.3s; cursor:default; position:relative; overflow:hidden; }
   .weight-segment.stale::after { content:''; position:absolute; inset:0; background:repeating-linear-gradient(45deg,rgba(0,0,0,0.2) 0px,rgba(0,0,0,0.2) 3px,transparent 3px,transparent 6px); }
@@ -271,10 +513,6 @@ const css = `
   .gate-val { flex:1; color:var(--text-dim); }
   .gate-pass { color:var(--green); } .gate-fail { color:var(--red); }
 
-  /* EMPTY / ERROR STATES */
-  .empty-state { padding:32px; text-align:center; color:var(--text-dim); font-size:11px; }
-  .empty-state .icon { font-size:24px; margin-bottom:8px; opacity:0.4; }
-
   /* LOADING */
   .loading-screen { display:flex; align-items:center; justify-content:center; height:100%; flex-direction:column; gap:12px; }
   .loading-dot { width:8px; height:8px; border-radius:50%; background:var(--amber); animation:pulse 1s ease-in-out infinite; }
@@ -290,6 +528,7 @@ const css = `
 `;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
+
 const fmt = {
   usd:(v)=>v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`,
   pct:(v)=>`${(v*100).toFixed(1)}%`,
@@ -329,35 +568,7 @@ function kalmanBiasStyle(bk, uk) {
   }
 }
 
-// ─── TABS ─────────────────────────────────────────────────────────────────────
-const TABS = [
-  {id:"overview",label:"Overview"},{id:"positions",label:"Positions"},
-  {id:"bets",label:"Recent Bets"},{id:"alerts",label:"Alerts"},
-  {id:"params",label:"Parameters"},{id:"bss",label:"BSS Matrix"},
-  {id:"stations",label:"Stations"},{id:"models",label:"Models"},
-];
-
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
-
-const EMPTY_STATE = {
-  system: {
-    trading_halted: false,
-    paper_mode: true,
-    db_connected: false,
-    last_checked: new Date().toISOString(),
-    bankroll: 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
-    mdd_alltime: 0, mdd_rolling_90: 0, cal: 0,
-    n_bets_total: 0, n_bets_won: 0, n_bets_lost: 0,
-  },
-  pipeline_runs: [],
-  open_positions: [],
-  recent_bets: [],
-  alerts: [],
-  params: [],
-  bss_matrix: [],
-  stations: [],
-  kalman_states: [],
-};
 
 function useData() {
   const [data, setData] = useState(null);
@@ -365,77 +576,77 @@ function useData() {
 
   const fetchAll = useCallback(async () => {
     const endpoints = [
-      ['/api/system',         'system'],
-      ['/api/pipeline_runs',  'pipeline_runs'],
-      ['/api/positions',      'open_positions'],
-      ['/api/bets',           'recent_bets'],
-      ['/api/alerts',         'alerts'],
-      ['/api/params',         'params'],
-      ['/api/bss-matrix',     'bss_matrix'],
-      ['/api/stations',       'stations'],
-      ['/api/kalman-states',  'kalman_states'],
+      ['/api/system','system'],['/api/pipeline-runs','pipeline_runs'],
+      ['/api/positions','open_positions'],['/api/bets','recent_bets'],
+      ['/api/alerts','alerts'],['/api/params','params'],
+      ['/api/bss-matrix','bss_matrix'],['/api/stations','stations'],
+      ['/api/kalman-states','kalman_states'],
     ];
+    try {
+      const results = await Promise.allSettled(
+        endpoints.map(([ep])=>fetch(`${API_BASE}${ep}`).then(r=>r.ok?r.json():Promise.reject()))
+      );
+      
+      // If the API completely fails (like in your extension), fall back to this empty state
+      const merged = {
+        system: {
+          trading_halted: false, db_connected: false, last_checked: new Date().toISOString(),
+          bankroll: 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
+          mdd_alltime: 0, mdd_rolling_90: 0, cal: 0, n_bets_total: 0, n_bets_won: 0, n_bets_lost: 0,
+        },
+        pipeline_runs: [], open_positions: [], recent_bets: [], alerts: [],
+        params: [], bss_matrix: [], stations: [], kalman_states: [],
+      };
 
-    const results = await Promise.allSettled(
-      endpoints.map(([ep]) =>
-        fetch(ep).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-      )
-    );
-
-    const merged = { ...EMPTY_STATE, system: { ...EMPTY_STATE.system } };
-    results.forEach(({ status, value }, i) => {
-      if (status === 'fulfilled') merged[endpoints[i][1]] = value;
-    });
-
-    // Preserve db_connected from the system endpoint result
-    if (results[0].status === 'fulfilled') {
-      merged.system.db_connected = true;
+      results.forEach(({status,value},i)=>{
+        if(status==='fulfilled') merged[endpoints[i][1]] = value;
+      });
+      setData(merged);
+    } catch {
+      // Safety catch (though Promise.allSettled rarely throws here)
+    } finally {
+      setLoading(false);
     }
+  },[]);
 
-    setData(merged);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchAll();
-    const t = setInterval(fetchAll, 60_000);
-    return () => clearInterval(t);
-  }, [fetchAll]);
-
-  return { data, loading, refresh: fetchAll };
+  useEffect(()=>{ fetchAll(); const t=setInterval(fetchAll,60000); return()=>clearInterval(t); },[fetchAll]);
+  return {data, loading, refresh:fetchAll};
 }
 
-// Generic per-resource fetch hook — no mock fallback
-function useApiFetch(url) {
-  const [state, setState] = useState({ loading: Boolean(url), data: null, error: null });
-
-  useEffect(() => {
-    if (!url) {
-      setState({ loading: false, data: null, error: null });
-      return;
-    }
-    setState(s => ({ ...s, loading: true, error: null }));
-    let cancelled = false;
-    fetch(url)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(data => { if (!cancelled) setState({ loading: false, data, error: null }); })
-      .catch(err => { if (!cancelled) setState({ loading: false, data: null, error: err.message }); });
-    return () => { cancelled = true; };
-  }, [url]);
-
+function useApiFetch(url, mockFn) {
+  const [state, setState] = useState({loading:true,data:null,error:null});
+  useEffect(()=>{
+    if(!url) return;
+    setState({loading:true,data:null,error:null});
+    fetch(`${API_BASE}${url}`)
+      .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(data=>setState({loading:false,data,error:null}))
+      // Replaced the mock generator with a standard null return
+      .catch(()=>setState({loading:false,data:null,error:'API unavailable'})); 
+  },[url]);
   return state;
 }
 
+// ─── TABS ─────────────────────────────────────────────────────────────────────
+
+const TABS = [
+  {id:"overview",label:"Overview"},{id:"positions",label:"Positions"},
+  {id:"bets",label:"Recent Bets"},{id:"alerts",label:"Alerts"},
+  {id:"params",label:"Parameters"},{id:"bss",label:"BSS Matrix"},
+  {id:"stations",label:"Stations"},{id:"models",label:"Models"},
+];
+
 // ─── MODAL: WRAPPER ───────────────────────────────────────────────────────────
-function ModalWrapper({ onClose, title, width=560, children }) {
-  useEffect(() => {
-    const h = (e) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+
+function ModalWrapper({onClose,title,width=560,children}) {
+  useEffect(()=>{
+    const h=(e)=>e.key==='Escape'&&onClose();
+    window.addEventListener('keydown',h);
+    return()=>window.removeEventListener('keydown',h);
+  },[onClose]);
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ width, maxWidth: '95vw' }}>
+    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal-box" style={{width,maxWidth:'95vw'}}>
         <div className="modal-header">
           <span className="modal-title">{title}</span>
           <button className="modal-close" onClick={onClose}>✕</button>
@@ -447,25 +658,27 @@ function ModalWrapper({ onClose, title, width=560, children }) {
 }
 
 // ─── MODAL: DISTRIBUTION ──────────────────────────────────────────────────────
-function DistributionModal({ ticker, onClose }) {
-  const { loading, data, error } = useApiFetch(
-    ticker ? `/api/shadow-book/${encodeURIComponent(ticker)}` : null
+
+function DistributionModal({ticker,onClose}) {
+  const {loading,data,error} = useApiFetch(
+    ticker?`/api/shadow-book/${encodeURIComponent(ticker)}`:null,
+    ()=>mockShadowBook(ticker)
   );
-  if (!ticker) return null;
+
+  if(!ticker) return null;
   return (
     <ModalWrapper onClose={onClose} title={`Shadow Book — ${ticker}`} width={560}>
       <div className="modal-body">
         {loading && (
-          <div style={{ padding: 32, textAlign: 'center' }}>
-            <div className="modal-skeleton" style={{ height: 200, marginBottom: 12, borderRadius: 3 }} />
-            <div className="modal-skeleton" style={{ height: 40, borderRadius: 3 }} />
+          <div style={{padding:32,textAlign:'center'}}>
+            <div className="modal-skeleton" style={{height:200,marginBottom:12,borderRadius:3}}/>
+            <div className="modal-skeleton" style={{height:40,borderRadius:3}}/>
           </div>
         )}
-        {!loading && data && <DistributionContent data={data} />}
+        {!loading && data && <DistributionContent data={data} error={error}/>}
         {!loading && !data && (
-          <div className="empty-state">
-            <div className="icon">📊</div>
-            {error ? `Error: ${error}` : 'No shadow book data available for this ticker.'}
+          <div style={{padding:24,textAlign:'center',color:'var(--text-dim)',fontSize:11}}>
+            No shadow book data available for this ticker.
           </div>
         )}
       </div>
@@ -473,11 +686,13 @@ function DistributionModal({ ticker, onClose }) {
   );
 }
 
-function DistributionContent({ data }) {
-  const { xi_s, omega_s, alpha_s, mu, sigma_eff, bins = [], metar_truncated, t_obs_max } = data;
+function DistributionContent({data,error}) {
+  const {xi_s,omega_s,alpha_s,mu,sigma_eff,bins,metar_truncated,t_obs_max} = data;
   const W=520,H=200,ml=10,mr=10,mt=20,mb=28;
   const iW=W-ml-mr, iH=H-mt-mb;
-  const sigma = sigma_eff || 2.5, xMin=mu-4*sigma, xMax=mu+4*sigma;
+
+  // x range: μ ± 4σ
+  const sigma = sigma_eff||2.5, xMin=mu-4*sigma, xMax=mu+4*sigma;
   const sx=(x)=>ml+(x-xMin)/(xMax-xMin)*iW;
   const N=300;
   const pts=[];
@@ -487,22 +702,34 @@ function DistributionContent({ data }) {
   }
   const maxY=Math.max(...pts.map(p=>p.y),0.001);
   const sy=(y)=>H-mb-(y/maxY)*iH;
+
   const pathD=pts.map((p,i)=>`${i===0?'M':'L'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
   const areaD=pathD+` L${sx(xMax)},${sy(0)} L${sx(xMin)},${sy(0)} Z`;
+
   const activeBin=bins.find(b=>b.is_active);
   const pWin=activeBin?.p_win||0;
+  const entryBin=activeBin;
+
+  // Axis ticks at -3σ,-2σ,-1σ,0,+1σ,+2σ,+3σ
   const ticks=[-3,-2,-1,0,1,2,3].map(n=>({x:mu+n*sigma,label:`${(mu+n*sigma).toFixed(0)}°F`}))
     .filter(t=>t.x>=xMin&&t.x<=xMax);
-  const interiorBins = bins.filter(b => b.bin_lower > -500 && b.bin_upper < 500);
-  const binMaxP = Math.max(...interiorBins.map(b=>b.p_win), 0.01);
+
+  const binMaxP=Math.max(...bins.filter(b=>!b.bin_lower||b.bin_lower>-500).map(b=>b.p_win),0.01);
 
   return (
     <div>
+      {error==='mock' && (
+        <div style={{margin:'0 0 8px',padding:'5px 10px',background:'rgba(245,166,35,0.08)',border:'1px solid var(--amber-dim)',borderRadius:2,fontSize:9,color:'var(--amber)'}}>
+          DEMO MODE — API unavailable, showing synthetic data
+        </div>
+      )}
       {metar_truncated && (
         <div style={{margin:'0 0 8px',padding:'5px 10px',background:'rgba(245,166,35,0.08)',border:'1px solid var(--amber-dim)',borderRadius:2,fontSize:9,color:'var(--amber)'}}>
           ⚠ Distribution truncated — T_obs_max = {t_obs_max}°F
         </div>
       )}
+
+      {/* Main curve */}
       <svg width={W} height={H} style={{display:'block',margin:'0 auto'}}>
         <defs>
           <linearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
@@ -514,13 +741,27 @@ function DistributionContent({ data }) {
             <stop offset="100%" stopColor="rgba(245,166,35,0.1)"/>
           </linearGradient>
         </defs>
-        {activeBin && activeBin.bin_lower > -500 && activeBin.bin_upper < 500 && (
-          <rect x={sx(Math.max(activeBin.bin_lower,xMin))} y={mt}
-            width={sx(Math.min(activeBin.bin_upper,xMax))-sx(Math.max(activeBin.bin_lower,xMin))}
+
+        {/* Active bin highlight */}
+        {entryBin && entryBin.bin_lower>-500 && entryBin.bin_upper<500 && (
+          <rect x={sx(Math.max(entryBin.bin_lower,xMin))} y={mt}
+            width={sx(Math.min(entryBin.bin_upper,xMax))-sx(Math.max(entryBin.bin_lower,xMin))}
             height={iH} fill="url(#activeBinGrad)" rx={1}/>
         )}
+
+        {/* Other bins — dim highlights */}
+        {bins.filter(b=>!b.is_active&&b.bin_lower>-500&&b.bin_upper<500).map((b,i)=>(
+          <rect key={i} x={sx(Math.max(b.bin_lower,xMin))} y={mt}
+            width={Math.max(0,sx(Math.min(b.bin_upper,xMax))-sx(Math.max(b.bin_lower,xMin)))}
+            height={iH} fill="rgba(255,255,255,0.01)"/>
+        ))}
+
+        {/* Area fill */}
         <path d={areaD} fill="url(#curveGrad)"/>
+        {/* Curve line */}
         <path d={pathD} fill="none" stroke="rgba(245,166,35,0.85)" strokeWidth={1.8}/>
+
+        {/* X axis */}
         <line x1={ml} y1={H-mb} x2={W-mr} y2={H-mb} stroke="var(--border2)" strokeWidth={1}/>
         {ticks.map(t=>(
           <g key={t.label}>
@@ -528,18 +769,24 @@ function DistributionContent({ data }) {
             <text x={sx(t.x)} y={H-mb+11} textAnchor="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono">{t.label}</text>
           </g>
         ))}
+
+        {/* μ line */}
         <line x1={sx(mu)} y1={mt} x2={sx(mu)} y2={H-mb} stroke="rgba(245,166,35,0.4)" strokeWidth={1} strokeDasharray="3,3"/>
-        {activeBin && activeBin.bin_lower > -500 && (
+
+        {/* P(win) annotation */}
+        {entryBin && entryBin.bin_lower>-500 && (
           <g>
-            <rect x={sx((activeBin.bin_lower+activeBin.bin_upper)/2)-28} y={mt+4} width={56} height={14} rx={2} fill="var(--amber)" opacity={0.9}/>
-            <text x={sx((activeBin.bin_lower+activeBin.bin_upper)/2)} y={mt+14} textAnchor="middle" fontSize={9} fontWeight={700} fill="#000" fontFamily="IBM Plex Mono">
+            <rect x={sx((entryBin.bin_lower+entryBin.bin_upper)/2)-28} y={mt+4} width={56} height={14} rx={2} fill="var(--amber)" opacity={0.9}/>
+            <text x={sx((entryBin.bin_lower+entryBin.bin_upper)/2)} y={mt+14} textAnchor="middle" fontSize={9} fontWeight={700} fill="#000" fontFamily="IBM Plex Mono">
               P={fmt.pct(pWin)}
             </text>
           </g>
         )}
       </svg>
+
+      {/* Bin histogram */}
       <div style={{marginTop:4,display:'flex',alignItems:'flex-end',gap:1,height:40,padding:'0 10px'}}>
-        {interiorBins.map((b,i)=>(
+        {bins.filter(b=>b.bin_lower>-500&&b.bin_upper<500).map((b,i)=>(
           <div key={i} title={`${b.ticker}\nP(win)=${(b.p_win*100).toFixed(1)}%`}
             style={{
               flex:1,maxWidth:28,
@@ -553,6 +800,8 @@ function DistributionContent({ data }) {
         ))}
       </div>
       <div style={{height:1,background:'var(--border2)',margin:'0 10px'}}/>
+
+      {/* Footer */}
       <div style={{display:'flex',gap:20,marginTop:10,padding:'8px 0 0',fontSize:10,color:'var(--text-dim)'}}>
         <span>μ = <strong style={{color:'var(--amber)'}}>{mu?.toFixed(1)}°F</strong></span>
         <span>σ_eff = <strong style={{color:'var(--text)'}}>{sigma_eff?.toFixed(2)}°F</strong></span>
@@ -564,22 +813,23 @@ function DistributionContent({ data }) {
   );
 }
 
-// ─── MODAL: IBE ───────────────────────────────────────────────────────────────
-function IBEModal({ ticker, onClose }) {
-  const { loading, data, error } = useApiFetch(
-    ticker ? `/api/ibe-signals/${encodeURIComponent(ticker)}` : null
+// ─── MODAL: IBE SPIDER ────────────────────────────────────────────────────────
+
+function IBEModal({ticker,onClose}) {
+  const {loading,data,error} = useApiFetch(
+    ticker?`/api/ibe-signals/${encodeURIComponent(ticker)}`:null,
+    ()=>mockIBESignals(ticker)
   );
-  if (!ticker) return null;
+  if(!ticker) return null;
   return (
     <ModalWrapper onClose={onClose} title={`IBE Signals — ${ticker}`} width={440}>
       <div className="modal-body">
-        {loading && <div className="modal-skeleton" style={{ height: 340, borderRadius: 3 }} />}
-        {!loading && data && <IBEContent data={data} />}
+        {loading && <div className="modal-skeleton" style={{height:340,borderRadius:3}}/>}
+        {!loading && data && <IBEContent data={data} error={error}/>}
         {!loading && !data && (
-          <div className="empty-state">
-            <div className="icon">📡</div>
-            {error ? `Error: ${error}` : 'No IBE signal data available.'}
-            <div style={{fontSize:9,marginTop:4,color:'var(--text-dim)'}}>Signals are logged when a bet is evaluated in live mode.</div>
+          <div style={{padding:24,textAlign:'center',color:'var(--text-dim)',fontSize:11}}>
+            No IBE signal data available for this position.<br/>
+            <span style={{fontSize:9,marginTop:4,display:'block'}}>Signals are logged when a bet is evaluated. Paper-mode positions may not have IBE records.</span>
           </div>
         )}
       </div>
@@ -587,13 +837,13 @@ function IBEModal({ ticker, onClose }) {
   );
 }
 
-function IBEContent({ data }) {
+function IBEContent({data,error}) {
   const signals=[
-    {key:'KCV',raw:`${data.kcv_norm?.toFixed(3)} (norm)`,mod:data.kcv_mod},
-    {key:'MPDS',raw:data.mpds_k?.toFixed(5),mod:data.mpds_mod},
-    {key:'HMAS',raw:data.hmas?.toFixed(4),mod:data.hmas_mod},
-    {key:'FCT',raw:data.fct?.toFixed(4),mod:data.fct_mod},
-    {key:'SCAS',raw:data.scas?.toFixed(4),mod:data.scas_mod},
+    {key:'KCV',raw:`${data.kcv_norm?.toFixed(3)} (norm)`,mod:data.kcv_mod,veto:false},
+    {key:'MPDS',raw:data.mpds_k?.toFixed(5),mod:data.mpds_mod,veto:false},
+    {key:'HMAS',raw:data.hmas?.toFixed(4),mod:data.hmas_mod,veto:false},
+    {key:'FCT',raw:data.fct?.toFixed(4),mod:data.fct_mod,veto:false},
+    {key:'SCAS',raw:data.scas?.toFixed(4),mod:data.scas_mod,veto:false},
   ];
   const mods=[data.kcv_mod,data.mpds_mod,data.hmas_mod,data.fct_mod,data.scas_mod];
   const maxR=1.5;
@@ -603,33 +853,58 @@ function IBEContent({ data }) {
   const pts05=angles.map(a=>toXY(a,0.5));
   const pts10=angles.map(a=>toXY(a,1.0));
   const ptsMaxR=angles.map(a=>toXY(a,maxR));
-  const ptsData=mods.map((m,i)=>toXY(angles[i],Math.min(m||0,maxR)));
+  const ptsData=mods.map((m,i)=>toXY(angles[i],Math.min(m,maxR)));
   const polyStr=(pts)=>pts.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const LABELS=['KCV','MPDS','HMAS','FCT','SCAS'];
   const composite=data.composite||0;
   const compColor=composite>=1.0?'var(--green)':composite>=0.8?'var(--amber)':'var(--red)';
+
   return (
     <div>
+      {error==='mock' && <div style={{marginBottom:8,padding:'4px 8px',background:'rgba(245,166,35,0.08)',border:'1px solid var(--amber-dim)',borderRadius:2,fontSize:9,color:'var(--amber)'}}>DEMO MODE</div>}
       <div style={{display:'flex',gap:16,alignItems:'flex-start'}}>
+        {/* Radar */}
         <svg width={260} height={260} style={{flexShrink:0}}>
+          {/* Reference rings */}
           <polygon points={polyStr(pts05)} fill="none" stroke="var(--border2)" strokeWidth={0.5} strokeDasharray="2,2"/>
           <polygon points={polyStr(pts10)} fill="none" stroke="rgba(245,166,35,0.4)" strokeWidth={1} strokeDasharray="3,3"/>
           <polygon points={polyStr(ptsMaxR)} fill="none" stroke="var(--border)" strokeWidth={0.5}/>
-          {angles.map((a,i)=>(<line key={i} x1={CX} y1={CY} x2={ptsMaxR[i].x} y2={ptsMaxR[i].y} stroke="var(--border2)" strokeWidth={0.5}/>))}
+          {/* Axes */}
+          {angles.map((a,i)=>(
+            <line key={i} x1={CX} y1={CY} x2={ptsMaxR[i].x} y2={ptsMaxR[i].y} stroke="var(--border2)" strokeWidth={0.5}/>
+          ))}
+          {/* Data polygon */}
           <polygon points={polyStr(ptsData)} fill="rgba(0,212,216,0.15)" stroke="var(--cyan)" strokeWidth={1.5}/>
-          {ptsData.map((p,i)=>(<circle key={i} cx={p.x} cy={p.y} r={3} fill="var(--cyan)" stroke="var(--bg1)" strokeWidth={1}/>))}
-          {angles.map((a,i)=>{const lp=toXY(a,maxR*1.15);return(
-            <text key={i} x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono">{LABELS[i]}</text>
-          );})}
+          {/* Data dots */}
           {ptsData.map((p,i)=>(
-            <text key={i} x={p.x+(Math.cos(angles[i])*18)} y={p.y+(Math.sin(angles[i])*14)} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight={600} fill="var(--cyan)" fontFamily="IBM Plex Mono">
-              {(mods[i]||0).toFixed(2)}
+            <circle key={i} cx={p.x} cy={p.y} r={3} fill="var(--cyan)" stroke="var(--bg1)" strokeWidth={1}/>
+          ))}
+          {/* Modifier value labels */}
+          {angles.map((a,i)=>{
+            const lp=toXY(a,maxR*1.15);
+            return (
+              <text key={i} x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="middle"
+                fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono">
+                {LABELS[i]}
+              </text>
+            );
+          })}
+          {/* Modifier values at data points */}
+          {ptsData.map((p,i)=>(
+            <text key={i} x={p.x+(Math.cos(angles[i])*18)} y={p.y+(Math.sin(angles[i])*14)}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={8} fontWeight={600} fill="var(--cyan)" fontFamily="IBM Plex Mono">
+              {mods[i]?.toFixed(2)}
             </text>
           ))}
+          {/* Scale labels */}
           <text x={CX+4} y={CY-R*0.5/maxR+4} fontSize={7} fill="var(--text-dim)" fontFamily="IBM Plex Mono">0.5</text>
           <text x={CX+4} y={CY-R*1.0/maxR+4} fontSize={7} fill="rgba(245,166,35,0.6)" fontFamily="IBM Plex Mono">1.0</text>
         </svg>
+
+        {/* Right side */}
         <div style={{flex:1,minWidth:0}}>
+          {/* Composite */}
           <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg2)',borderRadius:3,border:'1px solid var(--border)'}}>
             <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Composite Modifier</div>
             <div style={{fontSize:28,fontWeight:600,color:compColor,lineHeight:1}}>{composite.toFixed(4)}</div>
@@ -637,49 +912,63 @@ function IBEContent({ data }) {
               {composite>=1.0?'↑ boosting bet size':composite>=0.8?'→ near-neutral':'↓ reducing bet size'}
             </div>
           </div>
+
+          {/* Signal table */}
           <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead><tr>{['Signal','Raw','Mod',''].map(h=>(<th key={h} style={{padding:'4px 6px',fontSize:8,color:'var(--text-dim)',textAlign:'left',borderBottom:'1px solid var(--border)',textTransform:'uppercase',letterSpacing:'0.08em'}}>{h}</th>))}</tr></thead>
+            <thead>
+              <tr>{['Signal','Raw','Mod',''].map(h=>(
+                <th key={h} style={{padding:'4px 6px',fontSize:8,color:'var(--text-dim)',textAlign:'left',borderBottom:'1px solid var(--border)',textTransform:'uppercase',letterSpacing:'0.08em'}}>{h}</th>
+              ))}</tr>
+            </thead>
             <tbody>
               {signals.map(s=>(
                 <tr key={s.key}>
                   <td style={{padding:'5px 6px',fontSize:10,fontWeight:600,color:'var(--text-bright)'}}>{s.key}</td>
                   <td style={{padding:'5px 6px',fontSize:9,color:'var(--text-dim)',fontFamily:'monospace'}}>{s.raw}</td>
-                  <td style={{padding:'5px 6px',fontSize:10,fontWeight:600,color:(s.mod||0)>=1.0?'var(--green)':(s.mod||0)>=0.8?'var(--amber)':'var(--red)'}}>{(s.mod||0).toFixed(4)}</td>
-                  <td style={{padding:'5px 6px',fontSize:9,color:'var(--text-dim)'}}>{(s.mod||0)>=1.0?'▲':(s.mod||0)>=0.8?'→':'▼'}</td>
+                  <td style={{padding:'5px 6px',fontSize:10,fontWeight:600,
+                    color:s.mod>=1.0?'var(--green)':s.mod>=0.8?'var(--amber)':'var(--red)'}}>{s.mod?.toFixed(4)}</td>
+                  <td style={{padding:'5px 6px',fontSize:9,color:'var(--text-dim)'}}>{s.mod>=1.0?'▲':s.mod>=0.8?'→':'▼'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Veto status */}
       <div style={{marginTop:12,padding:'7px 10px',borderRadius:2,
         background:data.veto_triggered?'var(--red-dim)':'var(--green-dim)',
         border:`1px solid ${data.veto_triggered?'rgba(232,64,64,0.3)':'rgba(46,192,122,0.3)'}`,
         fontSize:10,color:data.veto_triggered?'var(--red)':'var(--green)',fontWeight:600}}>
         {data.veto_triggered ? `⚠ Veto triggered: ${data.veto_reason}` : '✓ No veto triggered'}
       </div>
-      {data.recorded_at && <div style={{marginTop:8,fontSize:9,color:'var(--text-dim)'}}>Recorded {fmt.ts(data.recorded_at)}</div>}
     </div>
   );
 }
 
 // ─── MODAL: DECISION AUDIT ────────────────────────────────────────────────────
-function AuditModal({ ticker, onClose }) {
-  const { loading, data, error } = useApiFetch(
-    ticker ? `/api/decision-audit/${encodeURIComponent(ticker)}` : null
+
+function AuditModal({ticker,onClose}) {
+  const {loading,data,error} = useApiFetch(
+    ticker?`/api/decision-audit/${encodeURIComponent(ticker)}`:null,
+    ()=>mockDecisionAudit(ticker)
   );
-  if (!ticker) return null;
+  if(!ticker) return null;
   return (
     <ModalWrapper onClose={onClose} title={`Decision Audit — ${ticker}`} width={600}>
       <div className="modal-body">
-        {loading && (
-          <>{[1,2,3,4].map(i=>(<div key={i} style={{marginBottom:16}}><div className="modal-skeleton" style={{height:16,width:120,marginBottom:8,borderRadius:2}}/><div className="modal-skeleton" style={{height:80,borderRadius:3}}/></div>))}</>
-        )}
-        {!loading && data && <AuditContent data={data} />}
+        {loading && <>
+          {[1,2,3,4].map(i=>(
+            <div key={i} style={{marginBottom:16}}>
+              <div className="modal-skeleton" style={{height:16,width:120,marginBottom:8,borderRadius:2}}/>
+              <div className="modal-skeleton" style={{height:80,borderRadius:3}}/>
+            </div>
+          ))}
+        </>}
+        {!loading && data && <AuditContent data={data} error={error}/>}
         {!loading && !data && (
-          <div className="empty-state">
-            <div className="icon">🔍</div>
-            {error ? `Error: ${error}` : 'Decision audit data not available for this ticker.'}
+          <div style={{padding:24,textAlign:'center',color:'var(--text-dim)',fontSize:11}}>
+            Decision audit data not available for this ticker.
           </div>
         )}
       </div>
@@ -687,96 +976,95 @@ function AuditModal({ ticker, onClose }) {
   );
 }
 
-function AuditContent({ data }) {
+function AuditContent({data,error}) {
   const [open,setOpen]=useState({l2:true,l3:true,l4g:true,l4s:true});
   const tog=(k)=>setOpen(o=>({...o,[k]:!o[k]}));
-  const l2=data.l2_ensemble||{};
-  const l3=data.l3_pricing||{};
-  const l4=data.l4_execution||{};
+  const {l2,l3,l4} = {l2:data.l2_ensemble,l3:data.l3_pricing,l4:data.l4_execution};
   const gateNames={edge:'Edge',spread:'Spread',skill:'Skill',lead:'Lead',reserved:'Reserved'};
 
-  // Sizing cascade — use stored values from DB, derive what we can
-  const bss    = data.bss  || 0;
-  const phi    = data.phi  || Math.max(0.1, Math.min(1.0, bss / 0.25));
-  const fstar  = l4.f_star  || 0;
-  const f_phi  = l4.f_op && l4.f_op > 0 ? l4.f_op : +(fstar * phi).toFixed(4);
-  const ibe    = l4.ibe_composite || 1;
-  const f_ibe  = +(f_phi * ibe).toFixed(4);
-  const gamma  = l4.gamma_convergence || 1.0;
-  const f_gamma = +(f_ibe * gamma).toFixed(4);
-  const dscale = l4.d_scale || 1.0;
-  const ffinal = l4.f_final > 0 ? l4.f_final : +(f_gamma * dscale).toFixed(4);
-  const bankroll = 1000;
-  const contracts = Math.max(1, Math.floor(ffinal * bankroll / Math.max(l4.contract_price || 0.28, 0.01)));
+  // Sizing cascade
+  const phi=data._phi||0.45;
+  const bss=data._bss||0.10;
+  const fstar=l4?.f_star||0.071;
+  const f_phi=+(fstar*phi).toFixed(4);
+  const ibe=l4?.ibe_composite||0.91;
+  const f_ibe=+(f_phi*ibe).toFixed(4);
+  const gamma=l4?.gamma_convergence||1.0;
+  const f_gamma=+(f_ibe*gamma).toFixed(4);
+  const dscale=l4?.d_scale||1.0;
+  const ffinal=l4?.f_final||+(f_gamma*dscale).toFixed(4);
+  const contracts=data._contracts||Math.max(1,Math.floor(ffinal*1000/(l4?.contract_price||0.28)/100));
 
   const KV=({k,v,accent})=>(
-    <div className="audit-kv">
+    <div className="audit-kv" style={{marginBottom:0}}>
       <div className="audit-k">{k}</div>
-      <div className="audit-v" style={accent?{color:accent}:{}}>{v||'—'}</div>
+      <div className="audit-v" style={accent?{color:accent}:{}}>{v}</div>
     </div>
   );
 
   return (
     <div>
-      {/* L2 Ensemble */}
+      {error==='mock' && <div style={{marginBottom:12,padding:'4px 8px',background:'rgba(245,166,35,0.08)',border:'1px solid var(--amber-dim)',borderRadius:2,fontSize:9,color:'var(--amber)'}}>DEMO MODE — showing synthetic audit data</div>}
+
+      {/* Stage 1: L2 Ensemble */}
       <div className="audit-stage l2" style={{marginBottom:12}}>
         <div className="audit-stage-header" style={{color:'var(--cyan)'}} onClick={()=>tog('l2')}>
           <span>L2 — Ensemble State</span>
           <span style={{color:'var(--text-dim)',fontSize:9,marginLeft:'auto'}}>{open.l2?'▲':'▼'}</span>
         </div>
         {open.l2 && <div>
-          <KV k="Top model" v={l2.top_model_id} accent="var(--cyan)"/>
-          <KV k="M_k (models)" v={l2.m_k ? `${l2.m_k} models` : '—'}/>
-          <KV k="F_top" v={l2.f_tk_top != null ? `${l2.f_tk_top.toFixed(1)}°F` : '—'}/>
-          <KV k="F̄ (ensemble mean)" v={l2.f_bar_tk != null ? `${l2.f_bar_tk.toFixed(1)}°F` : '—'}/>
-          <KV k="S_tk (spread)" v={l2.s_tk != null ? `${l2.s_tk.toFixed(2)}°F` : '—'}/>
-          <KV k="σ_eff" v={l2.sigma_eff != null ? `${l2.sigma_eff.toFixed(2)}°F` : '—'}/>
-          <KV k="B_k (Kalman bias)" v={l2.b_k != null ? `${l2.b_k > 0 ? '+' : ''}${l2.b_k.toFixed(3)}°F` : '—'} accent={l2.b_k > 0.5 ? 'var(--red)' : l2.b_k < -0.5 ? '#6baed6' : undefined}/>
-          <KV k="U_k (uncertainty)" v={l2.u_k != null ? `${l2.u_k.toFixed(3)}°F²` : '—'}/>
-          <KV k="μ (corrected)" v={<span style={{color:'var(--amber)',fontWeight:700}}>{((l2.f_tk_top||0)+(l2.b_k||0)).toFixed(1)}°F</span>}/>
-          {l2.stale_model_ids && <KV k="Stale models" v={l2.stale_model_ids} accent="var(--amber)"/>}
+          <KV k="Top model" v={l2?.top_model_id||'—'} accent="var(--cyan)"/>
+          <KV k="M_k (models)" v={`${l2?.m_k||'—'} models`}/>
+          <KV k="F_top" v={`${l2?.f_tk_top?.toFixed(1)||'—'}°F`}/>
+          <KV k="F̄ (ensemble mean)" v={`${l2?.f_bar_tk?.toFixed(1)||'—'}°F`}/>
+          <KV k="S_tk (spread)" v={`${l2?.s_tk?.toFixed(2)||'—'}°F`}/>
+          <KV k="σ_eff" v={`${l2?.sigma_eff?.toFixed(2)||'—'}°F`}/>
+          <KV k="B_k (Kalman bias)" v={l2?.b_k!=null?`${l2.b_k>0?'+':''}${l2.b_k.toFixed(3)}°F`:'—'} accent={l2?.b_k>0.5?'var(--red)':l2?.b_k<-0.5?'#6baed6':undefined}/>
+          <KV k="U_k (uncertainty)" v={`${l2?.u_k?.toFixed(3)||'—'}°F²`}/>
+          <KV k="μ (corrected)" v={<span style={{color:'var(--amber)',fontWeight:700}}>{((l2?.f_tk_top||0)+(l2?.b_k||0)).toFixed(1)}°F</span>}/>
+          {l2?.stale_model_ids && <KV k="Stale models" v={l2.stale_model_ids} accent="var(--amber)"/>}
         </div>}
       </div>
 
-      {/* L3 Pricing */}
+      {/* Stage 2: L3 Pricing */}
       <div className="audit-stage l3" style={{marginBottom:12}}>
         <div className="audit-stage-header" style={{color:'var(--amber)'}} onClick={()=>tog('l3')}>
           <span>L3 — Skew-Normal Pricing</span>
           <span style={{color:'var(--text-dim)',fontSize:9,marginLeft:'auto'}}>{open.l3?'▲':'▼'}</span>
         </div>
         {open.l3 && <div>
-          <KV k="G₁_s (skewness)" v={l3.g1_s != null ? (l3.g1_s > 0 ? `+${l3.g1_s.toFixed(4)}` : l3.g1_s.toFixed(4)) : '0'} accent={l3.g1_s > 0.1 ? 'var(--red)' : l3.g1_s < -0.1 ? '#6baed6' : undefined}/>
-          <KV k="α_s (shape)" v={l3.alpha_s?.toFixed(4) || '0'}/>
-          <KV k="ξ_s (location)" v={l3.xi_s != null ? `${l3.xi_s.toFixed(2)}°F` : '—'}/>
-          <KV k="ω_s (scale)" v={l3.omega_s != null ? `${l3.omega_s.toFixed(2)}°F` : '—'}/>
-          <KV k="P(win)" v={<span style={{color:'var(--amber)',fontWeight:700}}>{fmt.pct(l3.p_win||0)}</span>}/>
-          <KV k="METAR truncated" v={l3.metar_truncated ? <span style={{color:'var(--amber)'}}>Yes — T_obs={l3.t_obs_max}°F</span> : 'No'}/>
+          <KV k="G₁_s (skewness)" v={l3?.g1_s>0?`+${l3.g1_s.toFixed(4)}`:`${l3?.g1_s?.toFixed(4)||'0'}`} accent={l3?.g1_s>0.1?'var(--red)':l3?.g1_s<-0.1?'#6baed6':undefined}/>
+          <KV k="α_s (shape)" v={l3?.alpha_s?.toFixed(4)||'0'}/>
+          <KV k="ξ_s (location)" v={`${l3?.xi_s?.toFixed(2)||'—'}°F`}/>
+          <KV k="ω_s (scale)" v={`${l3?.omega_s?.toFixed(2)||'—'}°F`}/>
+          <KV k="P(win)" v={<span style={{color:'var(--amber)',fontWeight:700}}>{fmt.pct(l3?.p_win||0)}</span>}/>
+          <KV k="METAR truncated" v={l3?.metar_truncated?<span style={{color:'var(--amber)'}}>Yes — T_obs={l3.t_obs_max}°F</span>:'No'}/>
         </div>}
       </div>
 
-      {/* Gates */}
+      {/* Stage 3: Gates */}
       <div className="audit-stage l4g" style={{marginBottom:12}}>
         <div className="audit-stage-header" style={{color:'var(--green)'}} onClick={()=>tog('l4g')}>
           <span>L4 — Conviction Gates</span>
           <span style={{color:'var(--text-dim)',fontSize:9,marginLeft:'auto'}}>{open.l4g?'▲':'▼'}</span>
         </div>
         {open.l4g && <div>
-          {Object.entries(l4.gate_flags||{edge:false,spread:false,skill:false,lead:false,reserved:true}).map(([k,pass])=>(
+          {Object.entries(l4?.gate_flags||{edge:true,spread:true,skill:true,lead:true,reserved:true}).map(([k,pass])=>(
             <div key={k} className="gate-row">
               <span className={`gate-name ${pass?'gate-pass':'gate-fail'}`}>{pass?'✓':'✗'} {gateNames[k]||k}</span>
               <span className="gate-val">
-                {k==='edge' && `p−c = ${(((l3.p_win||0)-(l4.contract_price||0))*100).toFixed(1)}¢`}
-                {k==='spread' && `S = ${l2.s_tk?.toFixed(2)||'—'}°F  (max 4.0°F)`}
-                {k==='skill' && `BSS = ${bss.toFixed(3)}  (enter ≥0.07)`}
-                {k==='lead' && `ceil 72h`}
-                {k==='reserved' && '—'}
+                {k==='edge'&&`p−c = ${((l3?.p_win||0)-(l4?.contract_price||0.28)).toFixed(3)*100>0?'+':''}${(((l3?.p_win||0)-(l4?.contract_price||0.28))*100).toFixed(1)}¢`}
+                {k==='spread'&&`S = ${l2?.s_tk?.toFixed(2)||'—'}°F  (max 4.0°F)`}
+                {k==='skill'&&`BSS = ${bss.toFixed(3)}  (enter ≥0.07)`}
+                {k==='lead'&&`lead = 24.0h  (ceil 72h)`}
+                {k==='reserved'&&`—`}
               </span>
             </div>
           ))}
         </div>}
       </div>
 
-      {/* Sizing */}
+      {/* Stage 4: Sizing */}
       <div className="audit-stage l4s">
         <div className="audit-stage-header" style={{color:'var(--purple)'}} onClick={()=>tog('l4s')}>
           <span>L4 — Kelly Sizing Chain</span>
@@ -787,8 +1075,8 @@ function AuditContent({ data }) {
             {mul:`f* (Smirnov)`,val:fstar.toFixed(4),result:null,note:'raw Kelly fraction'},
             {mul:`× Φ(BSS=${bss.toFixed(3)}) = ${phi.toFixed(2)}`,val:null,result:f_phi.toFixed(4),note:'skill scaling'},
             {mul:`× IBE composite = ${ibe.toFixed(3)}`,val:null,result:f_ibe.toFixed(4),note:'IBE scaling'},
-            {mul:`× Γ (conv.) = ${gamma.toFixed(3)}`,val:null,result:f_gamma.toFixed(4),note:'convergence'},
-            {mul:`× D_scale = ${dscale.toFixed(2)}`,val:null,result:ffinal.toFixed(4),note:'drawdown + jitter'},
+            {mul:`× Γ (market conv.) = ${gamma.toFixed(3)}`,val:null,result:f_gamma.toFixed(4),note:'convergence filter'},
+            {mul:`× D_scale = ${dscale.toFixed(2)}`,val:null,result:ffinal.toFixed(4),note:'drawdown scale + jitter'},
           ].map((row,i)=>(
             <div key={i} className="audit-cascade-row" style={{borderBottom:'1px solid var(--border)',paddingBottom:5,marginBottom:5}}>
               <span className="audit-mul">{row.mul}</span>
@@ -799,8 +1087,8 @@ function AuditContent({ data }) {
           ))}
           <div style={{marginTop:8,padding:'8px',background:'var(--bg2)',borderRadius:3,border:'1px solid var(--border)'}}>
             <div className="audit-kv"><div className="audit-k">f_final</div><div className="audit-v" style={{color:'var(--amber)',fontWeight:700}}>{ffinal.toFixed(4)}</div></div>
-            <div className="audit-kv"><div className="audit-k">Dollar amount</div><div className="audit-v">${(ffinal*bankroll).toFixed(2)}</div></div>
-            <div className="audit-kv"><div className="audit-k">Contracts</div><div className="audit-v" style={{color:'var(--text-bright)',fontWeight:700}}>{contracts} @ ${(l4.contract_price||0).toFixed(2)}</div></div>
+            <div className="audit-kv"><div className="audit-k">Dollar amount</div><div className="audit-v">${(ffinal*1000).toFixed(2)}</div></div>
+            <div className="audit-kv"><div className="audit-k">Contracts</div><div className="audit-v" style={{color:'var(--text-bright)',fontWeight:700}}>{contracts} @ ${(l4?.contract_price||0.28).toFixed(2)}</div></div>
           </div>
         </div>}
       </div>
@@ -809,37 +1097,22 @@ function AuditContent({ data }) {
 }
 
 // ─── TAB: OVERVIEW ────────────────────────────────────────────────────────────
-function OverviewTab({ data, onToggleTrading }) {
-  const s = data.system;
-  const winRate = s.n_bets_total > 0 ? s.n_bets_won / s.n_bets_total : 0;
-  const mddFill = Math.min(s.mdd_alltime / 0.20, 1) * 100;
+
+function OverviewTab({data,onToggleTrading}) {
+  const s=data.system;
+  const winRate=s.n_bets_total>0?s.n_bets_won/s.n_bets_total:0;
+  const mddFill=Math.min(s.mdd_alltime/0.20,1)*100;
   return (
     <div className="section fadein">
       <div className="section-header">
         <span className="section-title">Financial Snapshot</span>
         <span className="section-sub">Updated {fmt.ts(s.last_checked)}</span>
       </div>
-      <div className="stat-grid" style={{ marginBottom: 16 }}>
-        <div className="stat-box">
-          <div className="stat-label">Bankroll{s.paper_mode ? ' — Paper' : ' — Live'}</div>
-          <div className="stat-val amber">${s.bankroll.toFixed(2)}</div>
-          <div className="stat-sub" style={{color: s.paper_mode ? 'var(--cyan)' : 'var(--green)'}}>{s.paper_mode ? '📄 Paper mode' : '🔴 Live trading'}</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Portfolio Value</div>
-          <div className="stat-val">${s.portfolio_value.toFixed(2)}</div>
-          <div className="stat-sub" style={{color:s.cumulative_pnl>=0?'var(--green)':'var(--red)'}}>{fmt.usd(s.cumulative_pnl)} cumulative</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Daily P&L</div>
-          <div className={`stat-val ${s.daily_pnl>=0?'green':'red'}`}>{fmt.usd(s.daily_pnl)}</div>
-          <div className="stat-sub">{s.n_bets_total} total bets</div>
-        </div>
-        <div className="stat-box">
-          <div className="stat-label">Win Rate</div>
-          <div className="stat-val" style={{color:winRate>=0.55?'var(--green)':'var(--amber)'}}>{fmt.pct(winRate)}</div>
-          <div className="stat-sub">{s.n_bets_won}W / {s.n_bets_lost}L</div>
-        </div>
+      <div className="stat-grid" style={{marginBottom:16}}>
+        <div className="stat-box"><div className="stat-label">Bankroll</div><div className="stat-val amber">${s.bankroll.toFixed(2)}</div><div className="stat-sub">Paper mode</div></div>
+        <div className="stat-box"><div className="stat-label">Portfolio Value</div><div className="stat-val">${s.portfolio_value.toFixed(2)}</div><div className="stat-sub" style={{color:s.cumulative_pnl>=0?'var(--green)':'var(--red)'}}>{fmt.usd(s.cumulative_pnl)} cumulative</div></div>
+        <div className="stat-box"><div className="stat-label">Daily P&L</div><div className={`stat-val ${s.daily_pnl>=0?'green':'red'}`}>{fmt.usd(s.daily_pnl)}</div><div className="stat-sub">{s.n_bets_total} total bets</div></div>
+        <div className="stat-box"><div className="stat-label">Win Rate</div><div className="stat-val" style={{color:winRate>=0.55?'var(--green)':'var(--amber)'}}>{fmt.pct(winRate)}</div><div className="stat-sub">{s.n_bets_won}W / {s.n_bets_lost}L</div></div>
       </div>
       <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
@@ -848,6 +1121,7 @@ function OverviewTab({ data, onToggleTrading }) {
         </div>
         <div className="mdd-bar-track">
           <div className="mdd-bar-fill" style={{width:`${mddFill}%`,background:mddColor(s.mdd_alltime)}}/>
+          <div style={{position:'absolute',left:'50%',top:0,bottom:0,width:1,background:'rgba(245,166,35,0.5)'}}/>
         </div>
         <div className="mdd-ticks"><span className="mdd-tick">0%</span><span className="mdd-tick" style={{color:'var(--amber)'}}>10% WARN</span><span className="mdd-tick" style={{color:'var(--red)'}}>20% HALT</span></div>
         <div style={{display:'flex',gap:16,marginTop:6}}>
@@ -868,13 +1142,11 @@ function OverviewTab({ data, onToggleTrading }) {
       </div>
       <div className="section-header" style={{marginTop:8}}><span className="section-title">Pipeline Runs</span></div>
       <div className="card" style={{marginBottom:16}}>
-        {data.pipeline_runs.length === 0 ? (
-          <div className="empty-state">No pipeline run data available.</div>
-        ) : data.pipeline_runs.map((r,i)=>(
-          <div key={i} className="pipeline-row">
+        {data.pipeline_runs.map(r=>(
+          <div key={r.type} className="pipeline-row">
             <div className="pr-type">{r.type}</div>
-            <div style={{padding:'9px 4px'}}><span className={`tag ${(r.status||'').toLowerCase()}`}>{r.status}</span></div>
-            <div className="pr-time">{r.started ? fmt.ts(r.started) : '—'}</div>
+            <div style={{padding:'9px 4px'}}><span className={`tag ${r.status.toLowerCase()}`}>{r.status}</span></div>
+            <div className="pr-time">{fmt.ts(r.started)}</div>
             <div className="pr-stats">
               {r.rows_daily>0&&<div className="pr-stat-item">daily: <span className="pr-stat-val">{r.rows_daily}</span></div>}
               {r.rows_hourly>0&&<div className="pr-stat-item">hourly: <span className="pr-stat-val">{r.rows_hourly}</span></div>}
@@ -886,64 +1158,69 @@ function OverviewTab({ data, onToggleTrading }) {
       </div>
       <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{data.open_positions.length} active</span></div>
       <div className="card">
-        {data.open_positions.length === 0 ? (
-          <div className="empty-state">No open positions.</div>
-        ) : (
-          <table className="data-table"><thead><tr><th>Ticker</th><th>Type</th><th>Bin</th><th>Entry</th><th>Contracts</th></tr></thead>
-            <tbody>{data.open_positions.map((p,i)=>(
-              <tr key={i}>
-                <td style={{color:'var(--text-dim)',fontSize:10}}>{p.ticker||'—'}</td>
-                <td><span className={`tag ${((p.target_type||'')).toLowerCase()}`}>{p.target_type}</span></td>
-                <td style={{color:'var(--cyan)',fontSize:11}}>{p.bin_lower?.toFixed(0)}–{p.bin_upper?.toFixed(0)}°F</td>
-                <td style={{color:'var(--amber)'}}>{(p.entry_price||0).toFixed(2)}</td>
-                <td style={{color:'var(--text-bright)'}}>{p.contracts}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
+        <table className="data-table"><thead><tr><th>Ticker</th><th>Type</th><th>Bin</th><th>Entry</th><th>Contracts</th><th>P(Win)</th><th>Order</th></tr></thead>
+          <tbody>{data.open_positions.map(p=>(
+            <tr key={p.ticker}>
+              <td style={{color:'var(--text-dim)',fontSize:10}}>{p.ticker}</td>
+              <td><span className={`tag ${(p.type||p.target_type||'').toLowerCase()}`}>{p.type||p.target_type}</span></td>
+              <td style={{color:'var(--cyan)',fontSize:11}}>{p.bin}</td>
+              <td style={{color:'var(--amber)'}}>{(p.entry_price||0).toFixed(2)}</td>
+              <td style={{color:'var(--text-bright)'}}>{p.contracts}</td>
+              <td style={{color:(p.p_win||0)>(p.entry_price||0)?'var(--green)':'var(--text)'}}>{((p.p_win||0)*100).toFixed(1)}%</td>
+              <td><span className={`tag ${(p.order_type||'').toLowerCase()}`}>{p.order_type}</span></td>
+            </tr>
+          ))}</tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-// ─── TAB: POSITIONS ───────────────────────────────────────────────────────────
-function PositionsTab({ data, onOpenModal }) {
+// ─── TAB: POSITIONS (Enhanced) ───────────────────────────────────────────────
+
+function PositionsTab({data,onOpenModal}) {
   return (
     <div className="section fadein">
       <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{data.open_positions.length} active contracts</span></div>
       <div className="card">
-        {data.open_positions.length === 0 ? (
-          <div className="empty-state"><div className="icon">📋</div>No open positions.</div>
-        ) : (
-          <table className="data-table">
-            <thead><tr><th>Ticker</th><th>Station</th><th>Target</th><th>Type</th><th>Bin</th><th>Entry $</th><th>Qty</th><th>Order</th><th>Actions</th></tr></thead>
-            <tbody>{data.open_positions.map((p,i)=>(
-              <tr key={i}>
-                <td style={{color:'var(--text-dim)',fontSize:9,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis'}} title={p.ticker||''}>{p.ticker}</td>
-                <td style={{color:'var(--text-bright)',fontWeight:600}}>{p.station_id}</td>
-                <td style={{color:'var(--text-dim)',fontSize:10}}>{p.target_date ? String(p.target_date).slice(0,10) : '—'}</td>
-                <td><span className={`tag ${(p.target_type||'').toLowerCase()}`}>{p.target_type}</span></td>
-                <td style={{color:'var(--cyan)'}}>{p.bin_lower?.toFixed(0)}–{p.bin_upper?.toFixed(0)}°F</td>
+        <table className="data-table">
+          <thead><tr><th>Ticker</th><th>Station</th><th>Target</th><th>Type</th><th>Bin</th><th>Entry $</th><th>Qty</th><th>Notional</th><th>P(Win)</th><th>Edge</th><th>Spread σ</th><th>Order</th><th>Actions</th></tr></thead>
+          <tbody>{data.open_positions.map(p=>{
+            const notional=((p.entry_price||0)*(p.contracts||0)*100).toFixed(0);
+            const edge=(((p.p_win||0)-(p.entry_price||0))*100).toFixed(1);
+            return (
+              <tr key={p.ticker}>
+                <td style={{color:'var(--text-dim)',fontSize:9,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis'}} title={p.ticker}>{p.ticker}</td>
+                <td style={{color:'var(--text-bright)',fontWeight:600}}>{p.station||p.station_id}</td>
+                <td style={{color:'var(--text-dim)',fontSize:10}}>{p.target_date}</td>
+                <td><span className={`tag ${(p.type||p.target_type||'').toLowerCase()}`}>{p.type||p.target_type}</span></td>
+                <td style={{color:'var(--cyan)'}}>{p.bin}</td>
                 <td style={{color:'var(--amber)',fontWeight:500}}>{(p.entry_price||0).toFixed(2)}</td>
                 <td style={{color:'var(--text-bright)'}}>{p.contracts}</td>
+                <td style={{color:'var(--text-dim)',fontSize:10}}>${notional}</td>
+                <td style={{color:(p.p_win||0)>(p.entry_price||0)?'var(--green)':'var(--text)'}}>{((p.p_win||0)*100).toFixed(1)}%</td>
+                <td style={{color:parseFloat(edge)>0?'var(--green)':'var(--red)'}}>{edge}¢</td>
+                <td style={{color:'var(--text-dim)',fontSize:10}}>{p.s_tk_at_entry?.toFixed(1)||'—'}°F</td>
                 <td><span className={`tag ${(p.order_type||'').toLowerCase()}`}>{p.order_type}</span></td>
                 <td>
                   <div className="row-actions">
-                    <button className="btn-sm cyan" onClick={()=>onOpenModal('dist',p.ticker)} title="Distribution">Dist.</button>
+                    <button className="btn-sm cyan" onClick={()=>onOpenModal('dist',p.ticker)} title="Shadow Book Distribution">Dist.</button>
                     <button className="btn-sm amber" onClick={()=>onOpenModal('ibe',p.ticker)} title="IBE Signals">IBE</button>
-                    <button className="btn-sm green" onClick={()=>onOpenModal('audit',p.ticker)} title="Decision Audit">Audit</button>
+                    <button className="btn-sm green" onClick={()=>onOpenModal('audit',p.ticker)} title="Decision Audit Trail">Audit</button>
                   </div>
                 </td>
               </tr>
-            ))}</tbody>
-          </table>
-        )}
+            );
+          })}</tbody>
+        </table>
       </div>
       <div style={{height:16}}/>
       <div style={{padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,display:'flex',gap:24}}>
         {[
           {label:'Total Positions',val:data.open_positions.length},
+          {label:'Total Notional',val:`$${data.open_positions.reduce((a,p)=>a+(p.entry_price||0)*(p.contracts||0)*100,0).toFixed(0)}`},
           {label:'Total Contracts',val:data.open_positions.reduce((a,p)=>a+(p.contracts||0),0)},
+          {label:'Avg Edge',val:data.open_positions.length?`${(data.open_positions.reduce((a,p)=>a+((p.p_win||0)-(p.entry_price||0)),0)/data.open_positions.length*100).toFixed(1)}¢`:'—'},
         ].map(item=>(
           <div key={item.label}>
             <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>{item.label}</div>
@@ -955,44 +1232,40 @@ function PositionsTab({ data, onOpenModal }) {
   );
 }
 
-// ─── TAB: BETS ────────────────────────────────────────────────────────────────
-function BetsTab({ data }) {
-  const bets = data.recent_bets;
-  const betsWithPWin = bets.filter(b => b.p_win_at_entry != null);
-  const aboveDiag = betsWithPWin.filter(b => b.p_win_at_entry > b.entry_price).length;
-  const avgEdge = betsWithPWin.length
-    ? betsWithPWin.reduce((a,b)=>a+(b.p_win_at_entry-b.entry_price),0)/betsWithPWin.length*100
-    : 0;
+// ─── TAB: BETS (Enhanced with scatter) ───────────────────────────────────────
+
+function BetsTab({data}) {
+  const bets=data.recent_bets;
+  const betsWithPWin=bets.filter(b=>b.p_win_at_entry!=null);
+  const aboveDiag=betsWithPWin.filter(b=>b.p_win_at_entry>b.entry_price).length;
+  const avgEdge=betsWithPWin.length?betsWithPWin.reduce((a,b)=>a+(b.p_win_at_entry-b.entry_price),0)/betsWithPWin.length*100:0;
   return (
     <div className="section fadein">
-      <div className="section-header"><span className="section-title">Settled Bets</span><span className="section-sub">{bets.length} records</span></div>
+      <div className="section-header"><span className="section-title">Settled Bets</span><span className="section-sub">{bets.length} records shown</span></div>
       <div className="card">
-        {bets.length === 0 ? (
-          <div className="empty-state"><div className="icon">🎲</div>No settled bets yet.</div>
-        ) : (
-          <table className="data-table">
-            <thead><tr><th>Ticker</th><th>Station</th><th>Date</th><th>Type</th><th>Bin</th><th>Entry $</th><th>Qty</th><th>Outcome</th><th>Net P&L</th><th>Order</th></tr></thead>
-            <tbody>{bets.map((b,i)=>(
-              <tr key={i}>
-                <td style={{color:'var(--text-dim)',fontSize:9}}>{b.ticker}</td>
-                <td style={{color:'var(--text-bright)',fontWeight:600}}>{b.station||b.station_id}</td>
-                <td style={{color:'var(--text-dim)',fontSize:10}}>{b.target_date}</td>
-                <td><span className={`tag ${(b.type||b.target_type||'').toLowerCase()}`}>{b.type||b.target_type}</span></td>
-                <td style={{color:'var(--cyan)'}}>{b.bin}</td>
-                <td style={{color:'var(--amber)'}}>{(b.entry_price||0).toFixed(2)}</td>
-                <td style={{color:'var(--text-bright)'}}>{b.contracts}</td>
-                <td><span style={{padding:'1px 8px',borderRadius:2,fontSize:10,fontWeight:700,background:b.outcome===1?'var(--green-dim)':'var(--red-dim)',color:b.outcome===1?'var(--green)':'var(--red)'}}>{b.outcome===1?'WIN':'LOSS'}</span></td>
-                <td style={{fontWeight:600,color:(b.pnl_net||0)>=0?'var(--green)':'var(--red)'}}>{(b.pnl_net||0)>=0?'+':''}{(b.pnl_net||0).toFixed(2)}</td>
-                <td><span className={`tag ${(b.order_type||'').toLowerCase()}`}>{b.order_type}</span></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
+        <table className="data-table">
+          <thead><tr><th>Ticker</th><th>Station</th><th>Date</th><th>Type</th><th>Bin</th><th>Entry $</th><th>P(Win)</th><th>Qty</th><th>Outcome</th><th>Net P&L</th><th>Order</th></tr></thead>
+          <tbody>{bets.map(b=>(
+            <tr key={b.ticker}>
+              <td style={{color:'var(--text-dim)',fontSize:9}}>{b.ticker}</td>
+              <td style={{color:'var(--text-bright)',fontWeight:600}}>{b.station||b.station_id}</td>
+              <td style={{color:'var(--text-dim)',fontSize:10}}>{b.target_date}</td>
+              <td><span className={`tag ${(b.type||b.target_type||'').toLowerCase()}`}>{b.type||b.target_type}</span></td>
+              <td style={{color:'var(--cyan)'}}>{b.bin}</td>
+              <td style={{color:'var(--amber)'}}>{(b.entry_price||0).toFixed(2)}</td>
+              <td style={{color:'var(--text-dim)',fontSize:10}}>{b.p_win_at_entry!=null?`${(b.p_win_at_entry*100).toFixed(1)}%`:'—'}</td>
+              <td style={{color:'var(--text-bright)'}}>{b.contracts}</td>
+              <td><span style={{padding:'1px 8px',borderRadius:2,fontSize:10,fontWeight:700,background:b.outcome===1?'var(--green-dim)':'var(--red-dim)',color:b.outcome===1?'var(--green)':'var(--red)'}}>{b.outcome===1?'WIN':'LOSS'}</span></td>
+              <td style={{fontWeight:600,color:(b.pnl_net||0)>=0?'var(--green)':'var(--red)'}}>{(b.pnl_net||0)>=0?'+':''}{(b.pnl_net||0).toFixed(2)}</td>
+              <td><span className={`tag ${(b.order_type||'').toLowerCase()}`}>{b.order_type}</span></td>
+            </tr>
+          ))}</tbody>
+        </table>
       </div>
       <div style={{height:12}}/>
       <div style={{padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,display:'flex',gap:24,marginBottom:20}}>
         {[
-          {label:'Net P&L',val:`$${bets.reduce((a,b)=>a+(b.pnl_net||0),0).toFixed(2)}`,pos:bets.reduce((a,b)=>a+(b.pnl_net||0),0)>=0},
+          {label:'Total Net P&L',val:bets.reduce((a,b)=>a+(b.pnl_net||0),0).toFixed(2),pos:bets.reduce((a,b)=>a+(b.pnl_net||0),0)>=0},
           {label:'Wins',val:bets.filter(b=>b.outcome===1).length,pos:true},
           {label:'Losses',val:bets.filter(b=>b.outcome===0).length,pos:false},
           {label:'Win Rate',val:`${bets.length?(bets.filter(b=>b.outcome===1).length/bets.length*100).toFixed(0):0}%`,pos:true},
@@ -1004,26 +1277,33 @@ function BetsTab({ data }) {
         ))}
       </div>
 
-      {betsWithPWin.length > 0 && (
-        <>
-          <div className="section-header"><span className="section-title">Edge Quality Scatter</span><span className="section-sub">{betsWithPWin.length} bets with P(win) data</span></div>
-          <div className="card"><div className="card-body"><EdgeScatter bets={betsWithPWin} aboveDiag={aboveDiag} avgEdge={avgEdge}/></div></div>
-        </>
+      {/* Edge vs Outcome Scatter */}
+      <div className="section-header"><span className="section-title">Edge Quality — Settled Bets</span><span className="section-sub">{betsWithPWin.length} bets with P(win) data</span></div>
+      {betsWithPWin.length===0?(
+        <div style={{padding:20,textAlign:'center',color:'var(--text-dim)',fontSize:11,border:'1px solid var(--border)',borderRadius:3,background:'var(--bg1)'}}>No P(win) data available for settled bets.</div>
+      ):(
+        <div className="card">
+          <div className="card-body">
+            <EdgeScatter bets={betsWithPWin} aboveDiag={aboveDiag} avgEdge={avgEdge}/>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function EdgeScatter({ bets, aboveDiag, avgEdge }) {
+function EdgeScatter({bets,aboveDiag,avgEdge}) {
   const [hovered,setHovered]=useState(null);
   const W=540,H=240,ml=44,mr=20,mt=16,mb=32;
   const iW=W-ml-mr,iH=H-mt-mb;
   const sx=(v)=>ml+v*iW;
   const sy=(v)=>H-mb-v*iH;
-  const eps=0.03;
+  const eps=0.03; // edge buffer
+
   return (
     <div>
       <svg width={W} height={H} style={{display:'block',overflow:'visible'}}>
+        {/* Grid lines */}
         {[0,0.2,0.4,0.6,0.8,1.0].map(v=>(
           <g key={v}>
             <line x1={ml} y1={sy(v)} x2={W-mr} y2={sy(v)} stroke="var(--border)" strokeWidth={0.5}/>
@@ -1032,24 +1312,46 @@ function EdgeScatter({ bets, aboveDiag, avgEdge }) {
             <text x={sx(v)} y={H-mb+11} textAnchor="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono">{(v*100).toFixed(0)}¢</text>
           </g>
         ))}
+
+        {/* Edge buffer band (diagonal + ε) */}
+        <polygon
+          points={`${sx(0)},${sy(eps)} ${sx(1-eps)},${sy(1)} ${sx(1)},${sy(1)} ${sx(eps)},${sy(0)} ${sx(0)},${sy(0)} ${sx(0)},${sy(eps)}`}
+          fill="rgba(245,166,35,0.06)" stroke="none"/>
+
+        {/* 45° diagonal */}
         <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="rgba(255,255,255,0.15)" strokeWidth={1} strokeDasharray="4,3"/>
+
+        {/* Annotations */}
+        <text x={sx(0.06)} y={sy(0.82)} fontSize={9} fill="rgba(46,192,122,0.4)" fontFamily="IBM Plex Mono">High edge</text>
+        <text x={sx(0.72)} y={sy(0.18)} fontSize={9} fill="rgba(232,64,64,0.4)" fontFamily="IBM Plex Mono">Mispriced</text>
+
+        {/* Axes labels */}
+        <text x={ml+iW/2} y={H-2} textAnchor="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono">Entry Price (market paid)</text>
+        <text x={10} y={mt+iH/2} textAnchor="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono" transform={`rotate(-90,10,${mt+iH/2})`}>P(win) at entry</text>
+
+        {/* Axes */}
         <line x1={ml} y1={H-mb} x2={W-mr} y2={H-mb} stroke="var(--border2)" strokeWidth={1}/>
         <line x1={ml} y1={mt} x2={ml} y2={H-mb} stroke="var(--border2)" strokeWidth={1}/>
-        <text x={ml+iW/2} y={H-2} textAnchor="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono">Entry Price</text>
-        <text x={10} y={mt+iH/2} textAnchor="middle" fontSize={8} fill="var(--text-dim)" fontFamily="IBM Plex Mono" transform={`rotate(-90,10,${mt+iH/2})`}>P(win) at entry</text>
+
+        {/* Data points */}
         {bets.map((b,i)=>{
           const cx=sx(b.entry_price||0), cy=sy(b.p_win_at_entry||0);
           const win=b.outcome===1;
           const isHov=hovered===i;
           return (
-            <g key={b.ticker||i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)} style={{cursor:'default'}}>
+            <g key={b.ticker} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)} style={{cursor:'default'}}>
               {win
                 ? <circle cx={cx} cy={cy} r={isHov?7:5} fill={`rgba(46,192,122,${isHov?0.9:0.7})`} stroke="var(--green)" strokeWidth={isHov?1.5:1}/>
-                : <><line x1={cx-4} y1={cy-4} x2={cx+4} y2={cy+4} stroke={`rgba(232,64,64,${isHov?1:0.75})`} strokeWidth={isHov?2:1.5}/><line x1={cx+4} y1={cy-4} x2={cx-4} y2={cy+4} stroke={`rgba(232,64,64,${isHov?1:0.75})`} strokeWidth={isHov?2:1.5}/></>
+                : <>
+                    <line x1={cx-4} y1={cy-4} x2={cx+4} y2={cy+4} stroke={`rgba(232,64,64,${isHov?1:0.75})`} strokeWidth={isHov?2:1.5}/>
+                    <line x1={cx+4} y1={cy-4} x2={cx-4} y2={cy+4} stroke={`rgba(232,64,64,${isHov?1:0.75})`} strokeWidth={isHov?2:1.5}/>
+                  </>
               }
             </g>
           );
         })}
+
+        {/* Tooltip */}
         {hovered!=null && bets[hovered] && (()=>{
           const b=bets[hovered];
           const cx=sx(b.entry_price||0), cy=sy(b.p_win_at_entry||0);
@@ -1059,88 +1361,93 @@ function EdgeScatter({ bets, aboveDiag, avgEdge }) {
           return (
             <g>
               <rect x={tx} y={ty} width={140} height={28} rx={2} fill="var(--bg2)" stroke="var(--border2)" strokeWidth={1}/>
-              <text x={tx+6} y={ty+11} fontSize={9} fill="var(--text-bright)" fontFamily="IBM Plex Mono">{b.station||b.station_id||'—'}</text>
+              <text x={tx+6} y={ty+11} fontSize={9} fill="var(--text-bright)" fontFamily="IBM Plex Mono">{b.station||b.station_id}</text>
               <text x={tx+6} y={ty+22} fontSize={8} fill={edge>0?'var(--green)':'var(--red)'} fontFamily="IBM Plex Mono">Edge: {edge>0?'+':''}{edge.toFixed(1)}¢ · {b.outcome===1?'WIN':'LOSS'}</text>
             </g>
           );
         })()}
       </svg>
+
+      {/* Summary */}
       <div style={{display:'flex',gap:20,marginTop:8,fontSize:10,color:'var(--text-dim)'}}>
         <span><span style={{color:'var(--green)',fontWeight:600}}>{aboveDiag}</span> bets above diagonal</span>
         <span><span style={{color:'var(--red)',fontWeight:600}}>{bets.length-aboveDiag}</span> below</span>
         <span style={{marginLeft:'auto'}}>Avg edge: <span style={{color:avgEdge>0?'var(--green)':'var(--red)',fontWeight:600}}>{avgEdge>0?'+':''}{avgEdge.toFixed(1)}¢</span></span>
+        <span style={{color:'var(--text-dim)'}}>● Win &nbsp; ✗ Loss</span>
       </div>
     </div>
   );
 }
 
-// ─── TAB: ALERTS ──────────────────────────────────────────────────────────────
-function AlertsTab({ data, onResolve }) {
+// ─── TAB: ALERTS (Enhanced with GH Actions) ──────────────────────────────────
+
+function AlertsTab({data,onResolve}) {
   const [ghRuns,setGhRuns]=useState(null);
   const [ghError,setGhError]=useState(false);
-  const [ghLoading,setGhLoading]=useState(Boolean(GH_REPO));
 
   useEffect(()=>{
-    if(!GH_REPO) { setGhError(true); setGhLoading(false); return; }
-    let cancelled=false;
-    const fetch_ = () => {
+    if(!GH_REPO) { setGhError(true); return; }
+    const fetchGH=()=>{
       fetch(`https://api.github.com/repos/${GH_REPO}/actions/runs?per_page=30`)
-        .then(r=>{ if(r.status===403||r.status===429) throw new Error('rate_limited'); if(!r.ok) throw new Error(r.status); return r.json(); })
+        .then(r=>r.ok?r.json():Promise.reject(r.status))
         .then(d=>{
-          if(cancelled) return;
           const byWorkflow={};
           for(const run of (d.workflow_runs||[])){
-            const nm=(run.name||'unknown').toLowerCase();
+            const nm=(run.name||'').toLowerCase();
             if(!byWorkflow[nm]) byWorkflow[nm]=run;
           }
           setGhRuns(Object.values(byWorkflow).slice(0,8));
           setGhError(false);
-          setGhLoading(false);
         })
-        .catch(e=>{ if(!cancelled){setGhError(true);setGhLoading(false);} });
+        .catch(()=>setGhError(true));
     };
-    fetch_();
-    const t = setInterval(fetch_, 300_000);
-    return ()=>{ cancelled=true; clearInterval(t); };
+    fetchGH();
+    const t=setInterval(fetchGH,300000);
+    return()=>clearInterval(t);
   },[]);
 
-  const statusIcon=(s,conclusion)=>{
-    const val=conclusion||s;
-    if(val==='success') return <span style={{color:'var(--green)',fontWeight:700}}>✓ success</span>;
-    if(val==='failure') return <span style={{color:'var(--red)',fontWeight:700}}>✗ failure</span>;
+  const statusIcon=(s)=>{
+    if(s==='success') return <span style={{color:'var(--green)',fontWeight:700}}>✓ success</span>;
+    if(s==='failure') return <span style={{color:'var(--red)',fontWeight:700}}>✗ failure</span>;
     if(s==='in_progress'||s==='queued') return <span style={{color:'var(--amber)',fontWeight:700}}>⟳ running</span>;
-    return <span style={{color:'var(--text-dim)'}}>— {val}</span>;
+    return <span style={{color:'var(--text-dim)'}}>— {s}</span>;
   };
 
   const unresolved=data.alerts.filter(a=>!a.resolved);
   return (
     <div className="section fadein">
+      {/* GH Actions section */}
       <div className="section-header">
         <span className="section-title">Pipeline Schedule — GitHub Actions</span>
-        {GH_REPO && <a href={`https://github.com/${GH_REPO}/actions`} target="_blank" rel="noreferrer" style={{fontSize:9,color:'var(--cyan)',marginLeft:'auto',textDecoration:'none'}}>{GH_REPO} ↗</a>}
+        {GH_REPO&&<span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{GH_REPO}</span>}
       </div>
       <div className="card" style={{marginBottom:20}}>
-        {ghLoading && <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>Loading GitHub Actions status…</div>}
-        {!ghLoading && ghError && !GH_REPO && <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>Set <code style={{color:'var(--amber)'}}>NEXT_PUBLIC_GH_REPO</code> in .env.local to enable GitHub Actions status.</div>}
-        {!ghLoading && ghError && GH_REPO && <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>GitHub Actions unavailable (rate limit or auth error). <a href={`https://github.com/${GH_REPO}/actions`} target="_blank" rel="noreferrer" style={{color:'var(--cyan)'}}>View on GitHub ↗</a></div>}
-        {!ghLoading && ghRuns && ghRuns.map((run,i)=>(
+        {ghError&&!GH_REPO&&(
+          <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>Set <code style={{color:'var(--amber)'}}>VITE_GH_REPO</code> env var to enable GitHub Actions status.</div>
+        )}
+        {ghError&&GH_REPO&&(
+          <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>GitHub Actions status unavailable (API rate limit or network error).</div>
+        )}
+        {!ghError&&!ghRuns&&(
+          <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>Loading workflow runs…</div>
+        )}
+        {ghRuns&&ghRuns.map((run,i)=>(
           <div key={i} className="gh-row">
             <div className="gh-workflow">{run.name}</div>
-            <div className="gh-status">{statusIcon(run.status,run.conclusion)}</div>
+            <div className="gh-status">{statusIcon(run.conclusion||run.status)}</div>
             <div className="gh-age">{fmt.ago(run.updated_at||run.created_at)}</div>
-            <div className="gh-duration">{run.run_duration_ms?fmt.dur(Math.round(run.run_duration_ms/1000)):''}</div>
+            <div className="gh-duration">{run.run_duration_ms?fmt.dur(Math.round(run.run_duration_ms/1000)):fmt.ago(run.created_at)}</div>
             <a href={run.html_url} target="_blank" rel="noreferrer" className="gh-link">Logs ↗</a>
           </div>
         ))}
       </div>
 
+      {/* System alerts */}
       <div className="section-header">
         <span className="section-title">System Alerts</span>
         <span className="section-sub">{unresolved.length} unresolved</span>
       </div>
-      {data.alerts.length === 0 ? (
-        <div className="empty-state"><div className="icon">✅</div>No alerts.</div>
-      ) : data.alerts.map(a=>(
+      {data.alerts.map(a=>(
         <div key={a.id} style={{
           marginBottom:8,padding:'10px 14px',
           background:a.resolved?'var(--bg1)':'var(--bg2)',
@@ -1151,7 +1458,7 @@ function AlertsTab({ data, onResolve }) {
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
             <span style={{fontSize:10,fontWeight:700,color:a.resolved?'var(--text-dim)':sevColor(a.severity||0),textTransform:'uppercase',letterSpacing:'0.06em'}}>{a.type}</span>
             {a.station&&<span style={{fontSize:9,color:'var(--text-dim)'}}>{a.station}</span>}
-            <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{a.ts ? fmt.ts(a.ts) : '—'}</span>
+            <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{fmt.ts(a.ts)}</span>
             {!a.resolved&&<button onClick={()=>onResolve(a.id)} style={{padding:'1px 8px',background:'transparent',border:'1px solid var(--border2)',color:'var(--text-dim)',cursor:'pointer',borderRadius:2,fontSize:9,fontFamily:'var(--font-mono)'}}>Resolve</button>}
           </div>
           <div style={{fontSize:10,color:'var(--text-dim)'}}>{typeof a.detail==='string'?a.detail:JSON.stringify(a.detail)}</div>
@@ -1163,9 +1470,10 @@ function AlertsTab({ data, onResolve }) {
 }
 
 // ─── TAB: PARAMS ──────────────────────────────────────────────────────────────
-function ParamsTab({ data }) {
+
+function ParamsTab({data}) {
   const [search,setSearch]=useState('');
-  const [values,setValues]=useState(()=>Object.fromEntries((data.params||[]).map(p=>[p.key,p.value||''])));
+  const [values,setValues]=useState(()=>Object.fromEntries((data.params||[]).map(p=>[p.key,p.value])));
   const [dirty,setDirty]=useState({});
   const [saving,setSaving]=useState(false);
 
@@ -1183,21 +1491,18 @@ function ParamsTab({ data }) {
     setSaving(true);
     const changed=Object.keys(dirty).map(k=>({key:k,value:values[k]}));
     try {
-      const res = await fetch('/api/params', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(changed),
+      await fetch(`${API_BASE}/api/params`,{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(changed),
       });
-      if (!res.ok) throw new Error('Save failed');
-    } catch(e) {
-      console.error('Params save error:', e);
-    }
+    } catch(e) { /* silent — optimistic */ }
     setDirty({});
     setSaving(false);
   };
 
   const discard=()=>{
-    setValues(Object.fromEntries((data.params||[]).map(p=>[p.key,p.value||''])));
+    setValues(Object.fromEntries((data.params||[]).map(p=>[p.key,p.value])));
     setDirty({});
   };
 
@@ -1224,20 +1529,20 @@ function ParamsTab({ data }) {
       <div className="card">
         <div style={{display:'flex',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}}>
           {[['Key',280],['Value',200],['Type',60],['Description','1fr']].map(([h,w])=>(
-            <div key={h} style={{width:typeof w==='number'?w:undefined,flex:typeof w==='string'?1:undefined,padding:'5px 12px',fontSize:9,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-dim)'}}>{h}</div>
+            <div key={h} style={{width:typeof w==='number'?w:undefined,flex:typeof w==='string'?1:undefined,
+              padding:'5px 12px',fontSize:9,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-dim)'}}>{h}</div>
           ))}
         </div>
         <div className="overflow-auto" style={{maxHeight:500}}>
-          {filtered.length === 0 ? (
-            <div className="empty-state">No parameters match.</div>
-          ) : filtered.map(p=>(
+          {filtered.map(p=>(
             <div key={p.key} className="param-row" style={dirty[p.key]?{background:'rgba(245,166,35,0.03)'}:{}}>
               <div className="param-key" style={{color:'var(--cyan)'}}>
                 {p.key}{dirty[p.key]&&<span style={{color:'var(--amber)',marginLeft:5}}>●</span>}
               </div>
               <div className="param-val-cell">
-                <input className="param-input" style={{color:dirty[p.key]?'var(--amber)':'var(--text-bright)',borderColor:dirty[p.key]?'var(--amber-dim)':'transparent'}}
-                  value={values[p.key]??p.value??''}
+                <input className="param-input" style={{color:dirty[p.key]?'var(--amber)':'var(--text-bright)',
+                  borderColor:dirty[p.key]?'var(--amber-dim)':'transparent'}}
+                  value={values[p.key]??p.value}
                   onChange={e=>onChange(p.key,e.target.value)}/>
               </div>
               <div className="param-dtype">{p.dtype}</div>
@@ -1250,15 +1555,17 @@ function ParamsTab({ data }) {
   );
 }
 
-// ─── BSS DRILLDOWN ────────────────────────────────────────────────────────────
-function BSSdrilldown({ cell, onClose }) {
+// ─── BSS DRILLDOWN PANEL ──────────────────────────────────────────────────────
+
+function BSSdrilldown({cell,onClose}) {
   useEffect(()=>{
     const h=(e)=>{ if(e.key==='Escape') onClose(); };
     window.addEventListener('keydown',h);
     return()=>window.removeEventListener('keydown',h);
   },[onClose]);
+
   if(!cell) return null;
-  const bssCol=cell.bss>=0.07?'var(--green)':cell.bss>=0.03?'var(--amber)':cell.bss>=0?'var(--text-dim)':'var(--red)';
+  const bssColor=cell.bss>=0.07?'var(--green)':cell.bss>=0.03?'var(--amber)':cell.bss>=0?'var(--text-dim)':'var(--red)';
   return (
     <div className="drilldown-panel">
       <div className="drilldown-header">
@@ -1269,9 +1576,12 @@ function BSSdrilldown({ cell, onClose }) {
         <button className="modal-close" onClick={onClose}>✕</button>
       </div>
       <div className="drilldown-body">
+        {/* BSS score large */}
         <div style={{padding:'14px 0 12px',borderBottom:'1px solid var(--border)',marginBottom:12}}>
-          <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Current BSS</div>
-          <div style={{fontSize:32,fontWeight:600,color:bssCol,lineHeight:1}}>{cell.bss.toFixed(4)}</div>
+          <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Current BSS vs Climatology</div>
+          <div style={{display:'flex',alignItems:'baseline',gap:10}}>
+            <span style={{fontSize:32,fontWeight:600,color:bssColor,lineHeight:1}}>{cell.bss.toFixed(4)}</span>
+          </div>
           <div style={{marginTop:8}}>
             <span style={{display:'inline-block',padding:'2px 10px',borderRadius:2,fontSize:10,fontWeight:700,
               background:cell.qualified?'var(--green-dim)':'var(--red-dim)',
@@ -1281,26 +1591,52 @@ function BSSdrilldown({ cell, onClose }) {
             </span>
           </div>
         </div>
+
+        {/* Key metrics */}
         {[
-          ['BS Model',cell.bs_model?.toFixed(5)||'—'],
-          ['BS Baseline (clim.)',cell.bs_baseline_1?.toFixed(5)||'0.06667'],
-          ['N observations',cell.n_observations||'—'],
+          ['BS Model',cell.bs_model?.toFixed(5)??'—'],
+          ['BS Baseline (clim.)',cell.bs_baseline_1?.toFixed(5)??'0.06667'],
+          ['N observations',cell.n_observations??'—'],
           ['Lead bracket',cell.bracket],
           ['Target type',cell.type],
           ['Station',cell.station],
         ].map(([k,v])=>(
-          <div key={k} className="dp-row"><span className="dp-key">{k}</span><span className="dp-val">{v}</span></div>
+          <div key={k} className="dp-row">
+            <span className="dp-key">{k}</span>
+            <span className="dp-val">{v}</span>
+          </div>
         ))}
+
+        {/* Skill gate thresholds */}
         <div style={{marginTop:14,padding:'10px',background:'var(--bg2)',borderRadius:3,border:'1px solid var(--border)'}}>
-          <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:6}}>Skill Gate Thresholds</div>
+          <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:6}}>Skill Gate</div>
           <div style={{display:'flex',gap:0,borderRadius:2,overflow:'hidden',height:18}}>
             <div style={{flex:3,background:'var(--red-dim)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--red)'}}>exit &lt;0.03</div>
             <div style={{flex:4,background:'rgba(245,166,35,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--amber)'}}>0.03–0.07</div>
             <div style={{flex:10,background:'var(--green-dim)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--green)'}}>qualified ≥0.07</div>
           </div>
           <div style={{marginTop:6,fontSize:9,color:'var(--text-dim)'}}>
-            Current: <span style={{color:bssCol,fontWeight:700}}>{cell.bss.toFixed(4)}</span>
+            Current: <span style={{color:bssColor,fontWeight:700}}>{cell.bss.toFixed(4)}</span>&nbsp;
+            {cell.bss>=0.07?'↑ above entry threshold':cell.bss>=0.03?'between entry/exit':'✗ below exit'}
           </div>
+        </div>
+
+        {/* Mini BSS progress bar */}
+        <div style={{marginTop:12}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontSize:9,color:'var(--text-dim)'}}>BSS range [−0.02, +0.16]</span>
+          </div>
+          <div style={{height:6,background:'var(--bg3)',borderRadius:3,overflow:'hidden'}}>
+            <div style={{
+              height:'100%',borderRadius:3,
+              width:`${Math.max(0,Math.min(100,(cell.bss+0.02)/0.18*100))}%`,
+              background:bssColor,transition:'width 0.4s',
+            }}/>
+          </div>
+        </div>
+
+        <div style={{marginTop:14,fontSize:9,color:'var(--text-dim)'}}>
+          ℹ Click outside or press Esc to close.
         </div>
       </div>
     </div>
@@ -1308,11 +1644,12 @@ function BSSdrilldown({ cell, onClose }) {
 }
 
 // ─── TAB: BSS MATRIX ─────────────────────────────────────────────────────────
-function BSSTab({ data }) {
+
+function BSSTab({data}) {
   const [filterType,setFilterType]=useState('ALL');
-  const [viewMode,setViewMode]=useState('grid');
+  const [viewMode,setViewMode]=useState('grid'); // 'grid' | 'cards'
   const [drillCell,setDrillCell]=useState(null);
-  const [sortBy,setSortBy]=useState('score');
+  const [sortBy,setSortBy]=useState('score'); // 'score'|'id'|'bets'
 
   const matrix=data.bss_matrix||[];
   const stations=[...new Set(matrix.map(r=>r.station))];
@@ -1322,16 +1659,23 @@ function BSSTab({ data }) {
   const getCell=(station,type,bracket)=>matrix.find(r=>r.station===station&&r.type===type&&r.bracket===bracket);
   const qualified=matrix.filter(r=>r.qualified).length;
 
+  // Station card data
   const stationCards=stations.map(st=>{
     const cells=matrix.filter(r=>r.station===st);
     const qCells=cells.filter(r=>r.qualified);
-    const meanBSS=cells.length>0?cells.reduce((a,r)=>a+r.bss,0)/cells.length:0;
+    const meanBSS=qCells.length>0?qCells.reduce((a,r)=>a+r.bss,0)/qCells.length:
+      cells.reduce((a,r)=>a+r.bss,0)/Math.max(cells.length,1);
     const hStar=qCells.length>0?[...new Set(qCells.map(r=>r.bracket))].sort().pop():null;
-    const city = data.stations?.find(s=>s.id===st)?.city || '';
-    return {id:st,city,meanBSS,qCount:qCells.length,hStar,cells};
+    const activeBets=0;
+    const cityInfo=STATIONS_LIST.find(s=>s.id===st);
+    return {id:st,city:cityInfo?.city||'',meanBSS,qCount:qCells.length,hStar,activeBets,cells};
   });
 
-  const sortedCards=[...stationCards].sort((a,b)=>sortBy==='score'?b.meanBSS-a.meanBSS:a.id.localeCompare(b.id));
+  const sortedCards=[...stationCards].sort((a,b)=>{
+    if(sortBy==='score') return b.meanBSS-a.meanBSS;
+    if(sortBy==='id') return a.id.localeCompare(b.id);
+    return b.activeBets-a.activeBets;
+  });
 
   return (
     <div className="section fadein" style={{position:'relative'}}>
@@ -1339,25 +1683,39 @@ function BSSTab({ data }) {
         <span className="section-title">BSS Skill Matrix</span>
         <span style={{fontSize:9,color:'var(--text-dim)'}}>{qualified}/{matrix.length} cells qualified</span>
         <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+          {/* View toggle */}
           {['grid','cards'].map(v=>(
-            <button key={v} onClick={()=>setViewMode(v)} style={{padding:'2px 10px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em',background:viewMode===v?'var(--amber)':'transparent',color:viewMode===v?'#000':'var(--text-dim)',border:`1px solid ${viewMode===v?'var(--amber)':'var(--border2)'}`}}>{v}</button>
+            <button key={v} onClick={()=>setViewMode(v)} style={{
+              padding:'2px 10px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,
+              fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em',
+              background:viewMode===v?'var(--amber)':'transparent',
+              color:viewMode===v?'#000':'var(--text-dim)',
+              border:`1px solid ${viewMode===v?'var(--amber)':'var(--border2)'}`,
+            }}>{v}</button>
           ))}
+          {/* Type filter */}
           {['ALL','HIGH','LOW'].map(t=>(
-            <button key={t} onClick={()=>setFilterType(t)} style={{padding:'2px 10px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em',background:filterType===t?'rgba(0,212,216,0.15)':'transparent',color:filterType===t?'var(--cyan)':'var(--text-dim)',border:`1px solid ${filterType===t?'var(--cyan-dim)':'var(--border2)'}`}}>{t}</button>
+            <button key={t} onClick={()=>setFilterType(t)} style={{
+              padding:'2px 10px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,
+              fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em',
+              background:filterType===t?'rgba(0,212,216,0.15)':'transparent',
+              color:filterType===t?'var(--cyan)':'var(--text-dim)',
+              border:`1px solid ${filterType===t?'var(--cyan-dim)':'var(--border2)'}`,
+            }}>{t}</button>
           ))}
         </div>
       </div>
 
-      {matrix.length === 0 && <div className="empty-state"><div className="icon">📊</div>No BSS data — BSS matrix populates after the first evaluation cycle (night pipeline).</div>}
-
-      {matrix.length > 0 && viewMode==='grid' && (
+      {viewMode==='grid' && (
         <>
           <div className="card bss-grid-wrap overflow-auto" style={{marginBottom:12}}>
             <table className="bss-grid">
               <thead>
                 <tr>
                   <th style={{textAlign:'left',minWidth:72}}>Station</th>
-                  {types.map(tt=>brackets.map(lb=>(<th key={`${tt}-${lb}`}>{tt[0]}{lb}</th>)))}
+                  {types.map(tt=>brackets.map(lb=>(
+                    <th key={`${tt}-${lb}`}>{tt[0]}{lb}</th>
+                  )))}
                 </tr>
               </thead>
               <tbody>
@@ -1369,7 +1727,8 @@ function BSSTab({ data }) {
                       const cls=cell?bssColor(cell.bss):'bss-cell-n';
                       return (
                         <td key={`${tt}-${lb}`}>
-                          <div className={cls} title={`${st} · ${tt} · ${lb}: BSS=${cell?.bss?.toFixed(4)||'N/A'}${cell?.qualified?' ✓':''}`}
+                          <div className={cls}
+                            title={`${st} · ${tt} · ${lb}: BSS=${cell?.bss?.toFixed(4)??'N/A'}${cell?.qualified?' ✓':''}`}
                             onClick={()=>setDrillCell(cell?{...cell,station:st,type:tt,bracket:lb}:null)}>
                             {cell?cell.bss.toFixed(2):'—'}
                           </div>
@@ -1382,20 +1741,34 @@ function BSSTab({ data }) {
             </table>
           </div>
           <div className="bss-legend">
-            {[{cls:'bss-cell-q',label:'Qualified (≥0.07)'},{cls:'bss-cell-m',label:'Marginal (0.03–0.07)'},{cls:'bss-cell-n',label:'Below exit (<0.03)'},{cls:'bss-cell-p',label:'Negative'}].map(({cls,label})=>(
-              <div key={cls} className="bss-leg-item"><div className={`bss-leg-box ${cls}`}/><span>{label}</span></div>
+            {[
+              {cls:'bss-cell-q',label:'Qualified (≥0.07)'},
+              {cls:'bss-cell-m',label:'Marginal (0.03–0.07)'},
+              {cls:'bss-cell-n',label:'Below exit (<0.03)'},
+              {cls:'bss-cell-p',label:'Negative'},
+            ].map(({cls,label})=>(
+              <div key={cls} className="bss-leg-item">
+                <div className={`bss-leg-box ${cls}`}/>
+                <span>{label}</span>
+              </div>
             ))}
             <span style={{marginLeft:'auto',fontSize:9,color:'var(--text-dim)'}}>Click any cell for drilldown</span>
           </div>
         </>
       )}
 
-      {matrix.length > 0 && viewMode==='cards' && (
+      {viewMode==='cards' && (
         <>
           <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center'}}>
             <span style={{fontSize:9,color:'var(--text-dim)'}}>Sort:</span>
-            {[['score','Skill Score'],['id','Station ID']].map(([v,l])=>(
-              <button key={v} onClick={()=>setSortBy(v)} style={{padding:'2px 8px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,fontWeight:600,cursor:'pointer',textTransform:'uppercase',background:sortBy===v?'var(--amber-glow)':'transparent',color:sortBy===v?'var(--amber)':'var(--text-dim)',border:`1px solid ${sortBy===v?'var(--amber-dim)':'var(--border2)'}`}}>{l}</button>
+            {[['score','Skill Score'],['id','Station ID'],['bets','Active Bets']].map(([v,l])=>(
+              <button key={v} onClick={()=>setSortBy(v)} style={{
+                padding:'2px 8px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,
+                fontWeight:600,cursor:'pointer',textTransform:'uppercase',
+                background:sortBy===v?'var(--amber-glow)':'transparent',
+                color:sortBy===v?'var(--amber)':'var(--text-dim)',
+                border:`1px solid ${sortBy===v?'var(--amber-dim)':'var(--border2)'}`,
+              }}>{l}</button>
             ))}
           </div>
           <div className="station-cards-grid">
@@ -1410,6 +1783,7 @@ function BSSTab({ data }) {
                     {sc.hStar&&<span style={{fontSize:9,color:'var(--cyan)'}}>h*={sc.hStar}</span>}
                   </div>
                   <div style={{fontSize:9,color:'var(--text-dim)',marginBottom:5}}>{sc.qCount}/10 cells qualified</div>
+                  {/* Mini grid */}
                   <div className="sc-mini-grid">
                     {['HIGH','LOW'].map(tt=>(
                       <div key={tt} className="sc-mini-row">
@@ -1417,7 +1791,11 @@ function BSSTab({ data }) {
                         {brackets.map(lb=>{
                           const cell=getCell(sc.id,tt,lb);
                           const bg=!cell?'var(--bg3)':cell.bss>=0.07?'rgba(46,192,122,0.45)':cell.bss>=0.03?'rgba(245,166,35,0.35)':cell.bss>=0?'rgba(255,255,255,0.06)':'rgba(232,64,64,0.3)';
-                          return (<div key={lb} className="sc-mini-cell" style={{background:bg}} title={`${sc.id} ${tt} ${lb}: ${cell?cell.bss.toFixed(3):'N/A'}`} onClick={()=>setDrillCell(cell?{...cell,station:sc.id,type:tt,bracket:lb}:null)}/>);
+                          return (
+                            <div key={lb} className="sc-mini-cell" style={{background:bg}}
+                              title={`${sc.id} ${tt} ${lb}: ${cell?cell.bss.toFixed(3):'N/A'}`}
+                              onClick={()=>setDrillCell(cell?{...cell,station:sc.id,type:tt,bracket:lb}:null)}/>
+                          );
                         })}
                       </div>
                     ))}
@@ -1429,15 +1807,20 @@ function BSSTab({ data }) {
         </>
       )}
 
-      {drillCell && (
-        <><div style={{position:'fixed',inset:0,zIndex:150}} onClick={()=>setDrillCell(null)}/><BSSdrilldown cell={drillCell} onClose={()=>setDrillCell(null)}/></>
+      {/* Drilldown panel */}
+      {drillCell&&(
+        <>
+          <div style={{position:'fixed',inset:0,zIndex:150}} onClick={()=>setDrillCell(null)}/>
+          <BSSdrilldown cell={drillCell} onClose={()=>setDrillCell(null)}/>
+        </>
       )}
     </div>
   );
 }
 
 // ─── TAB: STATIONS ────────────────────────────────────────────────────────────
-function StationsTab({ data }) {
+
+function StationsTab({data}) {
   const stations=data.stations||[];
   const live=stations.filter(s=>s.metar_age_min<60).length;
   const warn=stations.filter(s=>s.metar_age_min>=60&&s.metar_age_min<120).length;
@@ -1449,7 +1832,11 @@ function StationsTab({ data }) {
         <span className="section-sub">Stale threshold: 120 min</span>
       </div>
       <div style={{display:'flex',gap:12,marginBottom:12}}>
-        {[{label:'Live',val:live,color:'var(--green)'},{label:'Warn',val:warn,color:'var(--amber)'},{label:'Stale',val:stale,color:'var(--red)'}].map(({label,val,color})=>(
+        {[
+          {label:'Live',val:live,color:'var(--green)'},
+          {label:'Warn',val:warn,color:'var(--amber)'},
+          {label:'Stale',val:stale,color:'var(--red)'},
+        ].map(({label,val,color})=>(
           <div key={label} style={{padding:'8px 16px',background:'var(--bg1)',border:`1px solid var(--border)`,borderLeft:`3px solid ${color}`,borderRadius:3}}>
             <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>{label}</div>
             <div style={{fontSize:18,fontWeight:600,color}}>{val}</div>
@@ -1457,55 +1844,59 @@ function StationsTab({ data }) {
         ))}
       </div>
       <div className="card">
-        {stations.length === 0 ? (
-          <div className="empty-state"><div className="icon">📡</div>No station data available.</div>
-        ) : (
-          <>
-            <div style={{display:'flex',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}}>
-              {[['Station',70],['City','flex'],['METAR Age',120],['Obs Count',80],['Status',80]].map(([h,w])=>(
-                <div key={h} style={{width:typeof w==='number'?w:undefined,flex:typeof w==='string'?1:undefined,padding:'5px 12px',fontSize:9,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-dim)'}}>{h}</div>
-              ))}
-            </div>
-            <div className="overflow-auto" style={{maxHeight:500}}>
-              {stations.map(st=>{
-                const isStale=st.metar_age_min>=120;
-                const isWarn=st.metar_age_min>=60&&!isStale;
-                const cls=isStale?'stale':isWarn?'warn':'fresh';
-                return (
-                  <div key={st.id} className="station-row">
-                    <div className="st-id">{st.id}</div>
-                    <div className="st-city">{st.city}</div>
-                    <div className="st-metar"><span className={`metar-age ${cls}`}>{st.metar_age_min<9999?fmt.age(st.metar_age_min)+' ago':'No data'}</span></div>
-                    <div className="st-obs">{st.obs_count} obs</div>
-                    <div style={{width:80,padding:'8px 12px'}}>
-                      <span className={`tag ${isStale?'error':isWarn?'warn':'ok'}`}>{isStale?'STALE':isWarn?'WARN':'LIVE'}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+        <div style={{display:'flex',background:'var(--bg2)',borderBottom:'1px solid var(--border)'}}>
+          {[['Station',70],['City','flex'],['METAR Age',120],['Obs Count',80],['Status',80]].map(([h,w])=>(
+            <div key={h} style={{width:typeof w==='number'?w:undefined,flex:typeof w==='string'?1:undefined,
+              padding:'5px 12px',fontSize:9,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase',color:'var(--text-dim)'}}>{h}</div>
+          ))}
+        </div>
+        <div className="overflow-auto" style={{maxHeight:500}}>
+          {stations.map(st=>{
+            const isStale=st.metar_age_min>=120;
+            const isWarn=st.metar_age_min>=60&&!isStale;
+            const cls=isStale?'stale':isWarn?'warn':'fresh';
+            return (
+              <div key={st.id} className="station-row">
+                <div className="st-id">{st.id}</div>
+                <div className="st-city">{st.city}</div>
+                <div className="st-metar">
+                  <span className={`metar-age ${cls}`}>{fmt.age(st.metar_age_min)} ago</span>
+                </div>
+                <div className="st-obs">{st.obs_count} obs</div>
+                <div style={{width:80,padding:'8px 12px'}}>
+                  <span className={`tag ${isStale?'error':isWarn?'warn':'ok'}`}>
+                    {isStale?'STALE':isWarn?'WARN':'LIVE'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 }
 
 // ─── TAB: MODELS ─────────────────────────────────────────────────────────────
-function ModelsTab({ data }) {
-  // Derive station list from live stations data
-  const stationIds = (data.stations || []).map(s => s.id);
-  const defaultStation = stationIds[0] || 'KNYC';
-  const [selectedStation,setSelectedStation]=useState(defaultStation);
 
-  const { loading: weightsLoading, data: weightsData } = useApiFetch(
-    `/api/ensemble-weights?station=${selectedStation}`
-  );
+function ModelsTab({data}) {
+  const [selectedStation,setSelectedStation]=useState('KNYC');
+  const [weightsData,setWeightsData]=useState(null);
+  const [weightsLoading,setWeightsLoading]=useState(false);
 
   const kalmanStates=data.kalman_states||[];
+  const stations=STATIONS_LIST.map(s=>s.id);
+
+  useEffect(()=>{
+    setWeightsLoading(true);
+    fetch(`${API_BASE}/api/ensemble-weights?station=${selectedStation}`)
+      .then(r=>r.ok?r.json():Promise.reject())
+      .then(d=>{ setWeightsData(d); setWeightsLoading(false); })
+      .catch(()=>{ setWeightsData(mockEnsembleWeights(selectedStation)); setWeightsLoading(false); });
+  },[selectedStation]);
+
   const bigBias=kalmanStates.filter(k=>Math.abs(k.b_k||0)>1.0).length;
   const highUnc=kalmanStates.filter(k=>(k.u_k||0)>2.0).length;
-  const stationsForGrid = stationIds.length > 0 ? stationIds : ['KNYC'];
 
   return (
     <div className="section fadein">
@@ -1517,76 +1908,88 @@ function ModelsTab({ data }) {
         </span>
       </div>
       <div className="card" style={{marginBottom:8,overflowX:'auto'}}>
-        {kalmanStates.length === 0 ? (
-          <div className="empty-state"><div className="icon">🌡️</div>No Kalman state data — populates after the first night pipeline run.</div>
-        ) : (
-          <div style={{minWidth:720}}>
-            <div style={{display:'flex',borderBottom:'1px solid var(--border)',background:'var(--bg2)'}}>
-              <div style={{width:60,padding:'6px 10px',fontSize:8,fontWeight:600,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.08em',flexShrink:0}}>Type</div>
-              {stationsForGrid.map(sid=>(
-                <div key={sid} style={{flex:1,minWidth:42,padding:'6px 2px',fontSize:8,fontWeight:600,color:'var(--text-dim)',textAlign:'center',textTransform:'uppercase',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={sid}>
-                  {sid.slice(1)}
-                </div>
-              ))}
-            </div>
-            {['HIGH','LOW'].map(tt=>(
-              <div key={tt} style={{display:'flex',borderBottom:tt==='HIGH'?'1px solid var(--border)':'none'}}>
-                <div style={{width:60,padding:'0 10px',fontSize:9,fontWeight:700,color:'var(--text-mid)',flexShrink:0,display:'flex',alignItems:'center',background:'var(--bg2)',borderRight:'1px solid var(--border)'}}>{tt}</div>
-                {stationsForGrid.map(sid=>{
-                  const ks=kalmanStates.find(k=>k.station_id===sid&&k.target_type===tt);
-                  const bk=ks?.b_k??0;
-                  const uk=ks?.u_k??4;
-                  const style_=kalmanBiasStyle(bk,uk);
-                  return (
-                    <div key={sid} style={{flex:1,minWidth:42,height:36,background:style_.background||'var(--bg1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:600,color:style_.color||'var(--text-dim)',cursor:'default',transition:'all 0.2s'}}
-                      title={`${sid} ${tt}\nB_k = ${bk>0?'+':''}${bk.toFixed(2)}°F\nU_k = ${uk.toFixed(2)}°F²\nVersion: ${ks?.state_version||'—'}`}>
-                      {style_.text||''}
-                    </div>
-                  );
-                })}
+        <div style={{minWidth:720}}>
+          {/* Header row */}
+          <div style={{display:'flex',borderBottom:'1px solid var(--border)',background:'var(--bg2)'}}>
+            <div style={{width:60,padding:'6px 10px',fontSize:8,fontWeight:600,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.08em',flexShrink:0}}>Type</div>
+            {stations.map(sid=>(
+              <div key={sid} style={{flex:1,minWidth:42,padding:'6px 2px',fontSize:8,fontWeight:600,color:'var(--text-dim)',textAlign:'center',textTransform:'uppercase',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',title:sid}}>
+                {sid.slice(1)}
               </div>
             ))}
           </div>
-        )}
+          {/* HIGH row */}
+          {['HIGH','LOW'].map(tt=>(
+            <div key={tt} style={{display:'flex',borderBottom:tt==='HIGH'?'1px solid var(--border)':'none'}}>
+              <div style={{width:60,padding:'0 10px',fontSize:9,fontWeight:700,color:'var(--text-mid)',flexShrink:0,display:'flex',alignItems:'center',background:'var(--bg2)',borderRight:'1px solid var(--border)'}}>{tt}</div>
+              {stations.map(sid=>{
+                const ks=kalmanStates.find(k=>k.station_id===sid&&k.target_type===tt);
+                const bk=ks?.b_k??0;
+                const uk=ks?.u_k??4;
+                const style=kalmanBiasStyle(bk,uk);
+                return (
+                  <div key={sid} style={{flex:1,minWidth:42,height:36,background:style.background||'var(--bg1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:600,color:style.color||'var(--text-dim)',cursor:'default',transition:'all 0.2s'}}
+                    title={`${sid} ${tt}\nB_k = ${bk>0?'+':''}${bk.toFixed(2)}°F\nU_k = ${uk.toFixed(2)}°F²\nVersion: ${ks?.state_version??'—'}\nLast obs: ${ks?.last_observation_date??'—'}`}>
+                    {style.text||''}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Color scale legend */}
       <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,padding:'6px 0'}}>
         <span style={{fontSize:9,color:'#6baed6',fontWeight:600}}>−3°F</span>
-        <div style={{flex:1,height:8,borderRadius:2,background:'linear-gradient(90deg,rgba(40,100,200,0.8) 0%,rgba(40,100,200,0.2) 35%,rgba(255,255,255,0.05) 50%,rgba(200,80,80,0.2) 65%,rgba(220,60,60,0.85) 100%)'}}/>
+        <div style={{flex:1,height:8,borderRadius:2,background:'linear-gradient(90deg,rgba(40,100,200,0.8) 0%,rgba(40,100,200,0.2) 35%,rgba(255,255,255,0.05) 50%,rgba(200,80,80,0.2) 65%,rgba(220,60,60,0.85) 100%)'}}>
+        </div>
+        <span style={{fontSize:9,color:'var(--text-dim)',position:'relative',left:'-50%',transform:'translateX(50%)'}}>0</span>
         <span style={{fontSize:9,color:'var(--red)',fontWeight:600}}>+3°F</span>
         <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:12}}>opacity ∝ certainty (1 − U_k/4)</span>
       </div>
 
-      {/* Ensemble Weight Breakdown */}
-      <div className="section-header"><span className="section-title">Ensemble Weight Breakdown</span></div>
+      {/* Model Weight Breakdown */}
+      <div className="section-header">
+        <span className="section-title">Ensemble Weight Breakdown</span>
+      </div>
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
         <span style={{fontSize:10,color:'var(--text-dim)'}}>Station:</span>
-        <select value={selectedStation} onChange={e=>setSelectedStation(e.target.value)} style={{background:'var(--bg2)',border:'1px solid var(--border2)',color:'var(--text-bright)',padding:'4px 8px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:11,outline:'none',cursor:'pointer'}}>
-          {(data.stations||[]).map(s=>(
+        <select value={selectedStation} onChange={e=>setSelectedStation(e.target.value)} style={{
+          background:'var(--bg2)',border:'1px solid var(--border2)',color:'var(--text-bright)',
+          padding:'4px 8px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:11,outline:'none',cursor:'pointer',
+        }}>
+          {STATIONS_LIST.map(s=>(
             <option key={s.id} value={s.id}>{s.id} — {s.city}</option>
           ))}
         </select>
         {weightsLoading&&<span style={{fontSize:9,color:'var(--text-dim)'}}>Loading…</span>}
       </div>
 
-      {!weightsLoading && weightsData && (()=>{
+      {weightsData&&(()=>{
         const weights=weightsData.weights||[];
-        if(weights.length===0) return <div className="empty-state"><div className="icon">⚖️</div>No weight data for this station — populates after the first market-open pipeline run.</div>;
         const total=weights.reduce((a,w)=>a+w.w_m,0)||1;
         const maxW=Math.max(...weights.map(w=>w.w_m),0);
+        const entropyStatus=maxW>0.60?'HIGH':maxW>0.40?'MEDIUM':'LOW';
         const entropyColor=maxW>0.60?'var(--red)':maxW>0.40?'var(--amber)':'var(--green)';
+
         return (
           <div>
+            {/* Stacked weight bar */}
             <div className="weight-bar-container" style={{marginBottom:8,height:36}}>
               {weights.map(w=>(
                 <div key={w.source_id} className={`weight-segment${w.is_stale?' stale':''}`}
-                  style={{width:`${(w.w_m/total*100).toFixed(1)}%`,background:MODEL_COLORS[w.source_id]||'#888',minWidth:w.w_m>0.05?28:0}}
+                  style={{
+                    width:`${(w.w_m/total*100).toFixed(1)}%`,
+                    background:MODEL_COLORS[w.source_id]||'#888',
+                    minWidth:w.w_m>0.05?28:0,
+                  }}
                   title={`${w.source_id}: ${(w.w_m*100).toFixed(1)}%${w.is_stale?' (STALE)':''}`}>
                   {w.w_m>0.08&&<span style={{fontSize:8}}>{w.source_id.replace('OME_','')}</span>}
                 </div>
               ))}
             </div>
+            {/* Color key */}
             <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
               {weights.map(w=>(
                 <div key={w.source_id} style={{display:'flex',alignItems:'center',gap:4,fontSize:9,color:w.is_stale?'var(--text-dim)':'var(--text)'}}>
@@ -1595,9 +1998,20 @@ function ModelsTab({ data }) {
                 </div>
               ))}
             </div>
+
+            {/* Model weights table */}
             <div className="card" style={{marginBottom:12}}>
               <table className="data-table">
-                <thead><tr><th>Model</th><th>Weight</th><th>BSS_m</th><th>Lead Bracket</th><th>Stale</th><th>Decay</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>Weight</th>
+                    <th>BSS_m</th>
+                    <th>Lead Bracket</th>
+                    <th>Stale</th>
+                    <th>Decay</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {weights.map(w=>(
                     <tr key={w.source_id} style={w.is_stale?{opacity:0.6}:{}}>
@@ -1615,19 +2029,24 @@ function ModelsTab({ data }) {
                           <span style={{color:'var(--amber)',fontWeight:600}}>{(w.w_m*100).toFixed(1)}%</span>
                         </div>
                       </td>
-                      <td style={{color:w.bss_m>=0.07?'var(--green)':w.bss_m>=0.03?'var(--amber)':'var(--red)'}}>{w.bss_m?.toFixed(4)||'—'}</td>
+                      <td style={{color:w.bss_m>=0.07?'var(--green)':w.bss_m>=0.03?'var(--amber)':'var(--red)'}}>{w.bss_m?.toFixed(4)??'—'}</td>
                       <td style={{color:'var(--text-dim)'}}>{w.lead_bracket}</td>
                       <td>{w.is_stale?<span className="tag stale">STALE</span>:<span style={{color:'var(--text-dim)',fontSize:10}}>—</span>}</td>
-                      <td style={{color:'var(--text-dim)'}}>{w.stale_decay_factor?.toFixed(3)||'1.000'}</td>
+                      <td style={{color:'var(--text-dim)'}}>{w.stale_decay_factor?.toFixed(3)??'1.000'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {/* Entropy summary */}
             <div style={{display:'flex',gap:20,padding:'8px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,fontSize:10}}>
-              <span style={{color:'var(--text-dim)'}}>Max weight: <span style={{color:'var(--amber)',fontWeight:600}}>{(maxW*100).toFixed(1)}%</span></span>
-              <span style={{color:'var(--text-dim)'}}>Stale models: <span style={{color:weights.filter(w=>w.is_stale).length>0?'var(--amber)':'var(--text)'}}>{weights.filter(w=>w.is_stale).length}</span></span>
-              <span style={{marginLeft:'auto',color:'var(--text-dim)'}}>Concentration: <strong style={{color:entropyColor}}>{maxW>0.60?'HIGH':maxW>0.40?'MEDIUM':'LOW'}</strong></span>
+              <span style={{color:'var(--text-dim)'}}>Entropy λ = <span style={{color:'var(--text)'}}>{data.params?.find?.(p=>p.key==='ensemble.entropy_lambda')?.value??'0.10'}</span></span>
+              <span style={{color:'var(--text-dim)'}}>Max weight = <span style={{color:'var(--amber)',fontWeight:600}}>{(maxW*100).toFixed(1)}%</span></span>
+              <span style={{color:'var(--text-dim)'}}>Stale = <span style={{color:weights.filter(w=>w.is_stale).length>0?'var(--amber)':'var(--text)'}}>{weights.filter(w=>w.is_stale).length}</span></span>
+              <span style={{marginLeft:'auto',color:'var(--text-dim)'}}>
+                Weight concentration: <strong style={{color:entropyColor}}>{entropyStatus}</strong>
+              </span>
             </div>
           </div>
         );
@@ -1636,58 +2055,49 @@ function ModelsTab({ data }) {
   );
 }
 
-// ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
+// ─── ROOT COMPONENT ───────────────────────────────────────────────────────────
+
 export default function Dashboard() {
-  const { data, loading, refresh } = useData();
+  const {data,loading,refresh}=useData();
   const [tab,setTab]=useState('overview');
   const [now,setNow]=useState(new Date());
   const [modal,setModal]=useState({type:null,ticker:null});
-  const [halting,setHalting]=useState(false);
 
   useEffect(()=>{
     const t=setInterval(()=>setNow(new Date()),1000);
     return()=>clearInterval(t);
   },[]);
 
-  const openModal  = useCallback((type,ticker)=>setModal({type,ticker}),[]);
-  const closeModal = useCallback(()=>setModal({type:null,ticker:null}),[]);
+  const openModal=(type,ticker)=>setModal({type,ticker});
+  const closeModal=()=>setModal({type:null,ticker:null});
 
-  const toggleTrading = useCallback(async () => {
-    if (!data || halting) return;
-    const newHalted = !data.system.trading_halted;
-    setHalting(true);
+  const toggleTrading=useCallback(()=>{
+    if(!data) return;
+    // Optimistic local update; real systems would POST to /api/system
+    data.system.trading_halted=!data.system.trading_halted;
+    refresh();
+  },[data,refresh]);
+
+  const resolveAlert=useCallback(async(id)=>{
     try {
-      const res = await fetch('/api/system/halt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ halted: newHalted }),
-      });
-      if (res.ok) {
-        await refresh();
-      } else {
-        console.error('Halt API returned', res.status);
-      }
-    } catch (e) {
-      console.error('Failed to toggle trading halt:', e);
-    } finally {
-      setHalting(false);
+      await fetch(`${API_BASE}/api/alerts/${id}/resolve`,{method:'PATCH'});
+    } catch(e) { /* silent */ }
+    if(data) {
+      const a=data.alerts.find(a=>a.id===id);
+      if(a) a.resolved=true;
+      refresh();
     }
-  }, [data, halting, refresh]);
+  },[data,refresh]);
 
-  const resolveAlert = useCallback(async (id) => {
-    try {
-      await fetch(`/api/alerts/${id}/resolve`, { method: 'PATCH' });
-    } catch (e) {}
-    await refresh();
-  }, [refresh]);
-
-  if (loading || !data) return (
+  if(loading||!data) return (
     <>
       <style>{css}</style>
       <div className="shell">
         <div className="loading-screen">
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[0,1,2].map(i=>(<div key={i} className="loading-dot" style={{animationDelay:`${i*0.2}s`}}/>))}
+          <div style={{display:'flex',gap:8}}>
+            {[0,1,2].map(i=>(
+              <div key={i} className="loading-dot" style={{animationDelay:`${i*0.2}s`}}/>
+            ))}
           </div>
           <div style={{fontSize:10,color:'var(--text-dim)',letterSpacing:'0.1em',textTransform:'uppercase'}}>
             Connecting to KalshiCast DB…
@@ -1697,7 +2107,7 @@ export default function Dashboard() {
     </>
   );
 
-  const s = data.system || {};
+  const s=data.system||{};
   const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
   const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
   const staleStations=(data.stations||[]).filter(s=>s.metar_age_min>=120).length;
@@ -1722,72 +2132,39 @@ export default function Dashboard() {
             KalshiCast
           </div>
           <div className="topbar-metrics">
-            <div className="tmet">
-              <div className="tmet-label">Bankroll{s.paper_mode ? ' \u00b7 Paper' : ' \u00b7 Live'}</div>
-              <div className="tmet-val amber">${(s.bankroll||0).toFixed(2)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Daily P&L</div>
-              <div className={`tmet-val ${(s.daily_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.daily_pnl||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Cumulative</div>
-              <div className={`tmet-val ${(s.cumulative_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.cumulative_pnl||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">MDD</div>
-              <div className="tmet-val warn">{fmt.pct2(s.mdd_alltime||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Win Rate</div>
-              <div className="tmet-val">{fmt.pct(winRate)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Open Pos.</div>
-              <div className="tmet-val">{(data.open_positions||[]).length}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">UTC</div>
-              <div className="tmet-val" style={{fontSize:11}}>{now.toISOString().slice(11,19)}</div>
-            </div>
+            <div className="tmet"><div className="tmet-label">Bankroll</div><div className="tmet-val amber">${(s.bankroll||0).toFixed(2)}</div></div>
+            <div className="tmet"><div className="tmet-label">Daily P&L</div><div className={`tmet-val ${(s.daily_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.daily_pnl||0)}</div></div>
+            <div className="tmet"><div className="tmet-label">Cumulative</div><div className={`tmet-val ${(s.cumulative_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.cumulative_pnl||0)}</div></div>
+            <div className="tmet"><div className="tmet-label">MDD</div><div className="tmet-val warn">{fmt.pct2(s.mdd_alltime||0)}</div></div>
+            <div className="tmet"><div className="tmet-label">Win Rate</div><div className="tmet-val">{fmt.pct(winRate)}</div></div>
+            <div className="tmet"><div className="tmet-label">Open Pos.</div><div className="tmet-val">{(data.open_positions||[]).length}</div></div>
+            <div className="tmet"><div className="tmet-label">UTC</div><div className="tmet-val" style={{fontSize:11}}>{now.toISOString().slice(11,19)}</div></div>
           </div>
           <div className="topbar-right">
-            {s.paper_mode !== undefined && (
-              <div className={`status-badge ${s.paper_mode ? 'paper' : 'live-mode'}`}>
-                {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
-              </div>
-            )}
             <div className={`status-badge ${systemStatus}`}>
               <div className={`status-dot ${systemStatus}`}/>
               {systemLabel}
             </div>
-            <button
-              className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
-              onClick={toggleTrading}
-              disabled={halting}
-            >
-              {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
+            <button className={`btn-halt ${s.trading_halted?'halted':'active'}`} onClick={toggleTrading}>
+              {s.trading_halted?'▶ Resume':'⏹ Halt'}
             </button>
           </div>
         </div>
 
         {/* TABS */}
         <div className="tabs">
-          {TABS.map(t => {
-            const badge = tabBadges[t.id];
+          {TABS.map(t=>{
+            const badge=tabBadges[t.id];
             return (
               <div key={t.id} className={`tab${tab===t.id?' active':''}`} onClick={()=>setTab(t.id)}>
                 {t.label}
-                {badge && <span className={`tab-badge ${badge.cls}`}>{badge.n}</span>}
+                {badge&&<span className={`tab-badge ${badge.cls}`}>{badge.n}</span>}
               </div>
             );
           })}
           <div style={{flex:1}}/>
           <div style={{padding:'0 12px',display:'flex',alignItems:'center',fontSize:9,color:'var(--text-dim)'}}>
-            DB:&nbsp;
-            <span style={{color:s.db_connected?'var(--green)':'var(--red)',fontWeight:600}}>
-              {s.db_connected?'CONNECTED':'DISCONNECTED'}
-            </span>
+            DB:&nbsp;<span style={{color:s.db_connected?'var(--green)':'var(--red)',fontWeight:600}}>{s.db_connected?'CONNECTED':'DISCONNECTED'}</span>
           </div>
         </div>
 
@@ -1807,7 +2184,6 @@ export default function Dashboard() {
         {modal.type==='dist'  && <DistributionModal ticker={modal.ticker} onClose={closeModal}/>}
         {modal.type==='ibe'   && <IBEModal          ticker={modal.ticker} onClose={closeModal}/>}
         {modal.type==='audit' && <AuditModal        ticker={modal.ticker} onClose={closeModal}/>}
-
       </div>
     </>
   );
