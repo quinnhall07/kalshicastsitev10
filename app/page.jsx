@@ -374,9 +374,9 @@ function useData() {
       ['/api/bets',           'recent_bets'],
       ['/api/alerts',         'alerts'],
       ['/api/params',         'params'],
-      ['/api/bss-matrix',     'bss_matrix'],
-      ['/api/stations',       'stations'],
-      ['/api/kalman-states',  'kalman_states'],
+      //['/api/bss-matrix',     'bss_matrix'],
+      //['/api/stations',       'stations'],
+      //['/api/kalman-states',  'kalman_states'],
     ];
 
     try {
@@ -1753,14 +1753,123 @@ function ModelsTab({ data }) {
   );
 }
 
+// ─── STATUS TAB ──────────────────────────────────────────────────────
+const HEALTH_COLORS = {
+  healthy: '#2ec07a',
+  degraded: '#f5a623',
+  failed:   '#e84040',
+  no_data:  'rgba(255,255,255,0.05)',
+};
+ 
+const HEALTH_LABELS = {
+  healthy: { icon: '✓', label: 'Healthy',  color: '#2ec07a' },
+  degraded: { icon: '⚠', label: 'Degraded', color: '#f5a623' },
+  failed:   { icon: '✗', label: 'Failed',   color: '#e84040' },
+  no_data:  { icon: '—', label: 'No Data',  color: '#3a4055' },
+};
+ 
+// Each service row: what health key to read, and how to build tooltip details
+const STATUS_SERVICES = [
+  {
+    id: 'collection',
+    label: 'Morning Collection',
+    desc: 'FORECASTS_DAILY · 9 sources · 20 stations',
+    healthKey: 'collection',
+    expectedRows: 720,
+    getDetails: (d) => ({
+      summary:  d.morning_status ? `Pipeline: ${d.morning_status}` : 'No run recorded',
+      rows:     `${d.forecast_rows.toLocaleString()} / 720 forecast rows`,
+      extra:    d.stations_fail > 0 ? `${d.stations_fail} source(s) failed` : null,
+      extra2:   d.stations_ok   > 0 ? `${d.stations_ok} source(s) OK` : null,
+      error:    d.morning_error,
+    }),
+  },
+  {
+    id: 'night',
+    label: 'Night Pipeline',
+    desc: 'CLI OBSERVATIONS · KALMAN · BSS MATRIX',
+    healthKey: 'pipeline_night',
+    expectedRows: 20,
+    getDetails: (d) => ({
+      summary: d.night_status ? `Pipeline: ${d.night_status}` : 'No run recorded',
+      rows:    `${d.obs_rows} / 20 station observations`,
+      extra:   d.amendments > 0 ? `${d.amendments} CLI amendment(s) applied` : null,
+      extra2:  null,
+      error:   d.night_error,
+    }),
+  },
+  {
+    id: 'pricing',
+    label: 'Shadow Book',
+    desc: 'L3 PRICING · Skew-Normal · METAR truncation',
+    healthKey: 'pricing',
+    expectedRows: 600,
+    getDetails: (d) => ({
+      summary: d.market_status ? `Market Open: ${d.market_status}` : 'No run recorded',
+      rows:    `${d.shadow_rows.toLocaleString()} / 600 priced bins`,
+      extra:   null,
+      extra2:  null,
+      error:   d.market_error,
+    }),
+  },
+  {
+    id: 'metar',
+    label: 'METAR Coverage',
+    desc: 'INTRADAY OBSERVATIONS · Aviation Weather Center',
+    healthKey: 'metar',
+    expectedRows: null,
+    getDetails: (d) => ({
+      summary: `${d.metar_stations} / 20 stations with intraday data`,
+      rows:    null,
+      extra:   d.metar_stations < 20 ? `${20 - d.metar_stations} station(s) missing METAR` : null,
+      extra2:  null,
+      error:   null,
+    }),
+  },
+  {
+    id: 'evaluation',
+    label: 'Brier Grading',
+    desc: 'L5 EVALUATION · BRIER_SCORES · BSS matrix',
+    healthKey: 'evaluation',
+    expectedRows: null,
+    getDetails: (d) => ({
+      summary: d.brier_rows > 0
+        ? `${d.brier_rows} score(s) graded`
+        : d.night_status === 'OK' ? 'Night pipeline ran — no scores yet' : 'No grading recorded',
+      rows:    null,
+      extra:   null,
+      extra2:  null,
+      error:   null,
+    }),
+  },
+  {
+    id: 'alerts',
+    label: 'System Alerts',
+    desc: 'CRITICAL EVENTS · SYSTEM_ALERTS table',
+    healthKey: 'alerts',
+    expectedRows: null,
+    getDetails: (d) => ({
+      summary: d.critical_alerts > 0
+        ? `${d.critical_alerts} CRITICAL alert(s)`
+        : d.total_alerts > 0
+          ? `${d.total_alerts} alert(s) — none critical`
+          : 'No alerts recorded',
+      rows:    null,
+      extra:   d.alert_types || null,
+      extra2:  null,
+      error:   null,
+    }),
+  },
+];
+
 // ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data, loading, refresh } = useData();
   const [tab,setTab]=useState('overview');
   const [now,setNow]=useState(new Date());
+  const [mounted, setMounted] = useState(false);
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
-  const [mounted, setMounted] = useState(false);
 
   // 1. ADD KALSHI LIVE BALANCE POLLING HERE
   const [liveBalance, setLiveBalance] = useState(null);
@@ -1955,116 +2064,7 @@ export default function Dashboard() {
 
       </div>
     </>
-  );
-  // ─── STATUS TAB ──────────────────────────────────────────────────────
-const HEALTH_COLORS = {
-  healthy: '#2ec07a',
-  degraded: '#f5a623',
-  failed:   '#e84040',
-  no_data:  'rgba(255,255,255,0.05)',
-};
- 
-const HEALTH_LABELS = {
-  healthy: { icon: '✓', label: 'Healthy',  color: '#2ec07a' },
-  degraded: { icon: '⚠', label: 'Degraded', color: '#f5a623' },
-  failed:   { icon: '✗', label: 'Failed',   color: '#e84040' },
-  no_data:  { icon: '—', label: 'No Data',  color: '#3a4055' },
-};
- 
-// Each service row: what health key to read, and how to build tooltip details
-const STATUS_SERVICES = [
-  {
-    id: 'collection',
-    label: 'Morning Collection',
-    desc: 'FORECASTS_DAILY · 9 sources · 20 stations',
-    healthKey: 'collection',
-    expectedRows: 720,
-    getDetails: (d) => ({
-      summary:  d.morning_status ? `Pipeline: ${d.morning_status}` : 'No run recorded',
-      rows:     `${d.forecast_rows.toLocaleString()} / 720 forecast rows`,
-      extra:    d.stations_fail > 0 ? `${d.stations_fail} source(s) failed` : null,
-      extra2:   d.stations_ok   > 0 ? `${d.stations_ok} source(s) OK` : null,
-      error:    d.morning_error,
-    }),
-  },
-  {
-    id: 'night',
-    label: 'Night Pipeline',
-    desc: 'CLI OBSERVATIONS · KALMAN · BSS MATRIX',
-    healthKey: 'pipeline_night',
-    expectedRows: 20,
-    getDetails: (d) => ({
-      summary: d.night_status ? `Pipeline: ${d.night_status}` : 'No run recorded',
-      rows:    `${d.obs_rows} / 20 station observations`,
-      extra:   d.amendments > 0 ? `${d.amendments} CLI amendment(s) applied` : null,
-      extra2:  null,
-      error:   d.night_error,
-    }),
-  },
-  {
-    id: 'pricing',
-    label: 'Shadow Book',
-    desc: 'L3 PRICING · Skew-Normal · METAR truncation',
-    healthKey: 'pricing',
-    expectedRows: 600,
-    getDetails: (d) => ({
-      summary: d.market_status ? `Market Open: ${d.market_status}` : 'No run recorded',
-      rows:    `${d.shadow_rows.toLocaleString()} / 600 priced bins`,
-      extra:   null,
-      extra2:  null,
-      error:   d.market_error,
-    }),
-  },
-  {
-    id: 'metar',
-    label: 'METAR Coverage',
-    desc: 'INTRADAY OBSERVATIONS · Aviation Weather Center',
-    healthKey: 'metar',
-    expectedRows: null,
-    getDetails: (d) => ({
-      summary: `${d.metar_stations} / 20 stations with intraday data`,
-      rows:    null,
-      extra:   d.metar_stations < 20 ? `${20 - d.metar_stations} station(s) missing METAR` : null,
-      extra2:  null,
-      error:   null,
-    }),
-  },
-  {
-    id: 'evaluation',
-    label: 'Brier Grading',
-    desc: 'L5 EVALUATION · BRIER_SCORES · BSS matrix',
-    healthKey: 'evaluation',
-    expectedRows: null,
-    getDetails: (d) => ({
-      summary: d.brier_rows > 0
-        ? `${d.brier_rows} score(s) graded`
-        : d.night_status === 'OK' ? 'Night pipeline ran — no scores yet' : 'No grading recorded',
-      rows:    null,
-      extra:   null,
-      extra2:  null,
-      error:   null,
-    }),
-  },
-  {
-    id: 'alerts',
-    label: 'System Alerts',
-    desc: 'CRITICAL EVENTS · SYSTEM_ALERTS table',
-    healthKey: 'alerts',
-    expectedRows: null,
-    getDetails: (d) => ({
-      summary: d.critical_alerts > 0
-        ? `${d.critical_alerts} CRITICAL alert(s)`
-        : d.total_alerts > 0
-          ? `${d.total_alerts} alert(s) — none critical`
-          : 'No alerts recorded',
-      rows:    null,
-      extra:   d.alert_types || null,
-      extra2:  null,
-      error:   null,
-    }),
-  },
-];
- 
+  ); 
 // ─── TOOLTIP ──────────────────────────────────────────────────────────────────
  
 function StatusTooltip({ day, service, mouseX, mouseY }) {
