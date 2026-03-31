@@ -337,6 +337,8 @@ const TABS = [
 
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
 
+// ─── HOOKS ────────────────────────────────────────────────────────────────────
+
 const EMPTY_STATE = {
   system: {
     trading_halted: false,
@@ -361,7 +363,7 @@ function useData() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (signal) => {
     const endpoints = [
       ['/api/system',         'system'],
       ['/api/pipeline_runs',  'pipeline_runs'],
@@ -374,32 +376,55 @@ function useData() {
       ['/api/kalman-states',  'kalman_states'],
     ];
 
-    const results = await Promise.allSettled(
-      endpoints.map(([ep]) =>
-        fetch(ep).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-      )
-    );
+    try {
+      const results = await Promise.allSettled(
+        endpoints.map(([ep]) =>
+          fetch(ep, { signal }).then(r => { 
+            if (!r.ok) throw new Error(r.status); 
+            return r.json(); 
+          })
+        )
+      );
 
-    const merged = { ...EMPTY_STATE, system: { ...EMPTY_STATE.system } };
-    results.forEach(({ status, value }, i) => {
-      if (status === 'fulfilled') merged[endpoints[i][1]] = value;
-    });
+      // Prevent state updates if the component unmounted or request was aborted
+      if (signal && signal.aborted) return;
 
-    if (results[0].status === 'fulfilled') {
-      merged.system.db_connected = true;
+      const merged = { ...EMPTY_STATE, system: { ...EMPTY_STATE.system } };
+      results.forEach(({ status, value }, i) => {
+        if (status === 'fulfilled') merged[endpoints[i][1]] = value;
+      });
+
+      if (results[0].status === 'fulfilled') {
+        merged.system.db_connected = true;
+      }
+
+      setData(merged);
+      setLoading(false);
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.error('Data fetch error:', e);
+      }
     }
-
-    setData(merged);
-    setLoading(false);
   }, []);
 
   useEffect(() => {
-    fetchAll();
-    const t = setInterval(fetchAll, 60_000);
-    return () => clearInterval(t);
+    const controller = new AbortController();
+    
+    // Initial fetch
+    fetchAll(controller.signal);
+    
+    // Poll every 60 seconds
+    const t = setInterval(() => fetchAll(controller.signal), 60_000);
+    
+    // Cleanup on unmount
+    return () => { 
+      controller.abort(); 
+      clearInterval(t); 
+    };
   }, [fetchAll]);
 
-  return { data, loading, refresh: fetchAll };
+  // Wrap manual refresh so it doesn't accidentally pass the event object as the signal
+  return { data, loading, refresh: () => fetchAll() };
 }
 
 // Generic per-resource fetch hook — no mock fallback
@@ -808,13 +833,27 @@ function AuditContent({ data }) {
 // ─── TAB: OVERVIEW ────────────────────────────────────────────────────────────
 function OverviewTab({ data, liveBalance, onToggleTrading }) {
   const s = data.system;
+  const params = data.params || [];
   
-  // Calculate display values
+  // Read MDD thresholds from params (fallback to defaults if not found)
+  const getParam = (key, def) => {
+    const p = params.find(x => x.key === key);
+    return p && p.value !== undefined ? Number(p.value) : def;
+  };
+  const mddSafe = getParam('drawdown.mdd_safe', 0.10);
+  const mddHalt = getParam('drawdown.mdd_halt', 0.20);
+  
+  // Local MDD Color helper using dynamic thresholds
+  const localMddColor = (mdd) => {
+    if(mdd >= mddHalt) return "var(--red)";
+    if(mdd >= mddSafe) return "var(--amber)";
+    return "var(--green)";
+  };
+
   const displayBankroll = liveBalance?.balance ?? s.bankroll ?? 0;
   const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
-  
   const winRate = s.n_bets_total > 0 ? s.n_bets_won / s.n_bets_total : 0;
-  const mddFill = Math.min(s.mdd_alltime / 0.20, 1) * 100;
+  const mddFill = Math.min(s.mdd_alltime / mddHalt, 1) * 100;
   
   return (
     <div className="section fadein">
@@ -825,13 +864,11 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <div className="stat-box">
           <div className="stat-label">Bankroll{s.paper_mode ? ' — Paper' : ' — Live'}</div>
-          {/* Use displayBankroll */}
           <div className="stat-val amber">${displayBankroll.toFixed(2)}</div>
           <div className="stat-sub" style={{color: s.paper_mode ? 'var(--cyan)' : 'var(--green)'}}>{s.paper_mode ? '📄 Paper mode' : '🔴 Live trading'}</div>
         </div>
         <div className="stat-box">
           <div className="stat-label">Portfolio Value</div>
-          {/* Use displayPortfolio */}
           <div className="stat-val">${displayPortfolio.toFixed(2)}</div>
           <div className="stat-sub" style={{color:s.cumulative_pnl>=0?'var(--green)':'var(--red)'}}>{fmt.usd(s.cumulative_pnl)} cumulative</div>
         </div>
@@ -849,16 +886,20 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
       <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
           <span style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Max Drawdown (All-Time)</span>
-          <span style={{fontSize:11,color:mddColor(s.mdd_alltime),fontWeight:600}}>{fmt.pct2(s.mdd_alltime)}</span>
+          <span style={{fontSize:11,color:localMddColor(s.mdd_alltime),fontWeight:600}}>{fmt.pct2(s.mdd_alltime)}</span>
         </div>
         <div className="mdd-bar-track">
-          <div className="mdd-bar-fill" style={{width:`${mddFill}%`,background:mddColor(s.mdd_alltime)}}/>
+          <div className="mdd-bar-fill" style={{width:`${mddFill}%`,background:localMddColor(s.mdd_alltime)}}/>
         </div>
-        <div className="mdd-ticks"><span className="mdd-tick">0%</span><span className="mdd-tick" style={{color:'var(--amber)'}}>10% WARN</span><span className="mdd-tick" style={{color:'var(--red)'}}>20% HALT</span></div>
+        <div className="mdd-ticks">
+          <span className="mdd-tick">0%</span>
+          <span className="mdd-tick" style={{color:'var(--amber)'}}>{(mddSafe*100).toFixed(0)}% WARN</span>
+          <span className="mdd-tick" style={{color:'var(--red)'}}>{(mddHalt*100).toFixed(0)}% HALT</span>
+        </div>
         <div style={{display:'flex',gap:16,marginTop:6}}>
           <span style={{fontSize:9,color:'var(--text-dim)'}}>90-DAY: <span style={{color:'var(--text)'}}>{fmt.pct2(s.mdd_rolling_90)}</span></span>
           <span style={{fontSize:9,color:'var(--text-dim)'}}>CAL: <span style={{color:'var(--text)'}}>{s.cal.toFixed(4)}</span></span>
-          <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{s.mdd_alltime>=0.20?<span style={{color:'var(--red)',fontWeight:600}}>⚠ HALTED</span>:s.mdd_alltime>=0.10?<span style={{color:'var(--amber)',fontWeight:600}}>▲ WARNING</span>:<span style={{color:'var(--green)',fontWeight:600}}>✓ NORMAL</span>}</span>
+          <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{s.mdd_alltime>=mddHalt?<span style={{color:'var(--red)',fontWeight:600}}>⚠ HALTED</span>:s.mdd_alltime>=mddSafe?<span style={{color:'var(--amber)',fontWeight:600}}>▲ WARNING</span>:<span style={{color:'var(--green)',fontWeight:600}}>✓ NORMAL</span>}</span>
         </div>
       </div>
       <div style={{marginBottom:16}}>
@@ -913,16 +954,47 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
 
 // ─── TAB: POSITIONS ───────────────────────────────────────────────────────────
 function PositionsTab({ data, onOpenModal }) {
+  const positions = data.open_positions || [];
+  
+  // Calculate exposure summaries
+  let highExposure = 0;
+  let lowExposure = 0;
+  let totalExposure = 0;
+  
+  positions.forEach(p => {
+    const cost = (p.contracts || 0) * (p.entry_price || 0);
+    totalExposure += cost;
+    if ((p.target_type || '').toUpperCase() === 'HIGH') highExposure += cost;
+    if ((p.target_type || '').toUpperCase() === 'LOW') lowExposure += cost;
+  });
+
   return (
     <div className="section fadein">
-      <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{data.open_positions.length} active contracts</span></div>
+      <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{positions.length} active contracts</span></div>
+      
+      {/* Exposure Summary Added Here */}
+      <div style={{padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,display:'flex',gap:24,marginBottom:16}}>
+        {[
+          {label:'Total Positions',val:positions.length},
+          {label:'Total Contracts',val:positions.reduce((a,p)=>a+(p.contracts||0),0)},
+          {label:'Total At Risk',val:`$${totalExposure.toFixed(2)}`, color: 'var(--amber)'},
+          {label:'HIGH Exposure',val:`$${highExposure.toFixed(2)}`, color: 'var(--cyan)'},
+          {label:'LOW Exposure',val:`$${lowExposure.toFixed(2)}`, color: 'var(--cyan)'},
+        ].map(item=>(
+          <div key={item.label}>
+            <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>{item.label}</div>
+            <div style={{fontSize:14,fontWeight:500,color:item.color || 'var(--text-bright)'}}>{item.val}</div>
+          </div>
+        ))}
+      </div>
+
       <div className="card">
-        {data.open_positions.length === 0 ? (
+        {positions.length === 0 ? (
           <div className="empty-state"><div className="icon">📋</div>No open positions.</div>
         ) : (
           <table className="data-table">
             <thead><tr><th>Ticker</th><th>Station</th><th>Target</th><th>Type</th><th>Bin</th><th>Entry $</th><th>Qty</th><th>Order</th><th>Actions</th></tr></thead>
-            <tbody>{data.open_positions.map((p,i)=>(
+            <tbody>{positions.map((p,i)=>(
               <tr key={i}>
                 <td style={{color:'var(--text-dim)',fontSize:9,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis'}} title={p.ticker||''}>{p.ticker}</td>
                 <td style={{color:'var(--text-bright)',fontWeight:600}}>{p.station_id}</td>
@@ -943,18 +1015,6 @@ function PositionsTab({ data, onOpenModal }) {
             ))}</tbody>
           </table>
         )}
-      </div>
-      <div style={{height:16}}/>
-      <div style={{padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,display:'flex',gap:24}}>
-        {[
-          {label:'Total Positions',val:data.open_positions.length},
-          {label:'Total Contracts',val:data.open_positions.reduce((a,p)=>a+(p.contracts||0),0)},
-        ].map(item=>(
-          <div key={item.label}>
-            <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>{item.label}</div>
-            <div style={{fontSize:14,fontWeight:500,color:'var(--amber)'}}>{item.val}</div>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -1083,14 +1143,14 @@ function EdgeScatter({ bets, aboveDiag, avgEdge }) {
 function AlertsTab({ data, onResolve }) {
   const [ghRuns,setGhRuns]=useState(null);
   const [ghError,setGhError]=useState(false);
-  const [ghLoading,setGhLoading]=useState(Boolean(GH_REPO));
+  const [ghLoading,setGhLoading]=useState(true);
 
   useEffect(()=>{
-    if(!GH_REPO) { setGhError(true); setGhLoading(false); return; }
     let cancelled=false;
     const fetch_ = () => {
-      fetch(`https://api.github.com/repos/${GH_REPO}/actions/runs?per_page=30`)
-        .then(r=>{ if(r.status===403||r.status===429) throw new Error('rate_limited'); if(!r.ok) throw new Error(r.status); return r.json(); })
+      // Changed to hit our new authenticated local route instead of the public GitHub API
+      fetch(`/api/gh-actions`)
+        .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
         .then(d=>{
           if(cancelled) return;
           const byWorkflow={};
@@ -1497,11 +1557,19 @@ function StationsTab({ data }) {
 }
 
 // ─── TAB: MODELS ─────────────────────────────────────────────────────────────
+// ─── TAB: MODELS ─────────────────────────────────────────────────────────────
 function ModelsTab({ data }) {
   // Derive station list from live stations data
   const stationIds = (data.stations || []).map(s => s.id);
   const defaultStation = stationIds[0] || 'KNYC';
   const [selectedStation,setSelectedStation]=useState(defaultStation);
+
+  // ADD THIS: Update selectedStation when stationIds populates after initial load
+  useEffect(() => {
+    if (stationIds.length > 0 && !stationIds.includes(selectedStation)) {
+      setSelectedStation(stationIds[0]);
+    }
+  }, [stationIds, selectedStation]);
 
   const { loading: weightsLoading, data: weightsData } = useApiFetch(
     `/api/ensemble-weights?station=${selectedStation}`
