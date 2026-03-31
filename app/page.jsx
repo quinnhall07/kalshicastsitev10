@@ -1952,7 +1952,7 @@ export default function Dashboard() {
       </div>
     </>
   );
-  // ─── STATUS TIMELINE TAB ──────────────────────────────────────────────────────
+  // ─── STATUS TAB ──────────────────────────────────────────────────────
 const HEALTH_COLORS = {
   healthy: '#2ec07a',
   degraded: '#f5a623',
@@ -2474,4 +2474,5 @@ function StatusTimelineTab() {
       )}
     </div>
   );
+}
 }
