@@ -2268,7 +2268,7 @@ function StatusServiceRow({ service, days, onBarEnter, onBarLeave }) {
  
 // ─── MAIN TAB COMPONENT ───────────────────────────────────────────────────────
  
-function StatusTimelineTab() {
+function StatusTab() {
   const [days,    setDays]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
