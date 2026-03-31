@@ -2275,7 +2275,7 @@ function StatusTab() {
   const [tooltip, setTooltip] = useState(null); // { day, service, mouseX, mouseY }
  
   useEffect(() => {
-    fetch('/api/status-timeline')
+    fetch('/api/status')
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(d  => { setDays(Array.isArray(d) ? d : []); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
