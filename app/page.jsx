@@ -1856,8 +1856,8 @@ export default function Dashboard() {
           <div className="logo">
             <div className="logo-dot" style={s.trading_halted?{background:'var(--red)',boxShadow:'0 0 8px var(--red)'}:{}}/>
             Kalshicast
-            <span style={{ fontSize: '9px', color: 'var(--text-dim)', textTransform: 'lowercase', letterSpacing: '0.05em', marginLeft: '4px' }}>
-              by Knowlu
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.05em', marginLeft: '4px' }}>
+              BY KNOWLU
             </span>
           </div>
           <div className="topbar-metrics">
