@@ -41,7 +41,7 @@ const css = `
     --green: #2ec07a; --green-dim: #0d4029;
     --red: #e84040; --red-dim: #4a1010;
     --yellow: #ffd166; --muted: #3a4055;
-    --text-dim: #4a5270; --text-mid: #7a8299; --text: #b8c0d4; --text-bright: #e8eaf2;
+    --text-dim: #5a6280; --text-mid: #7a8299; --text: #b8c0d4; --text-bright: #e8eaf2;
     --font-mono: 'IBM Plex Mono', monospace; --font-sans: 'IBM Plex Sans', sans-serif;
     --purple: #a855f7; --teal: #14b8a6;
   }
