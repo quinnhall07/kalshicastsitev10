@@ -226,7 +226,7 @@ export async function GET() {
  
     return NextResponse.json(days);
   } catch (error) {
-    console.error('Status timeline error:', error);
+    console.error('Status error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   } finally {
     if (connection) try { await connection.close(); } catch (_) {}

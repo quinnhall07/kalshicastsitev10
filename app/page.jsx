@@ -345,7 +345,7 @@ const EMPTY_STATE = {
     trading_halted: false,
     paper_mode: true,
     db_connected: false,
-    last_checked: new Date().toISOString(),
+    last_checked: null,
     bankroll: 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
     mdd_alltime: 0, mdd_rolling_90: 0, cal: 0,
     n_bets_total: 0, n_bets_won: 0, n_bets_lost: 0,
@@ -1760,6 +1760,7 @@ export default function Dashboard() {
   const [now,setNow]=useState(new Date());
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
+  const [mounted, setMounted] = useState(false);
 
   // 1. ADD KALSHI LIVE BALANCE POLLING HERE
   const [liveBalance, setLiveBalance] = useState(null);
@@ -1777,6 +1778,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(()=>{
+    setMounted(true);
     const t=setInterval(()=>setNow(new Date()),1000);
     return()=>clearInterval(t);
   },[]);
@@ -1888,7 +1890,9 @@ export default function Dashboard() {
             </div>
             <div className="tmet">
               <div className="tmet-label">UTC</div>
-              <div className="tmet-val" style={{fontSize:11}}>{now.toISOString().slice(11,19)}</div>
+              <div className="tmet-val" style={{fontSize:11}}>
+                {mounted ? now.toISOString().slice(11,19) : '--:--:--'}
+              </div>
             </div>
           </div>
           <div className="topbar-right">
