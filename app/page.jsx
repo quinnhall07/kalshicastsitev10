@@ -946,41 +946,50 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
           <div className="win-bar-l" style={{width:`${(1-winRate)*100}%`}}/>
         </div>
       </div>
-      <div className="section-header" style={{marginTop:8}}><span className="section-title">Pipeline Runs</span></div>
-      <div className="card" style={{marginBottom:16}}>
-        {data.pipeline_runs.length === 0 ? (
-          <div className="empty-state">No pipeline run data available.</div>
-        ) : data.pipeline_runs.map((r,i)=>(
-          <div key={i} className="pipeline-row">
-            <div className="pr-type">{r.type}</div>
-            <div style={{padding:'9px 4px'}}><span className={`tag ${(r.status||'').toLowerCase()}`}>{r.status}</span></div>
-            <div className="pr-time">{r.started ? fmt.ts(r.started) : '—'}</div>
-            <div className="pr-stats">
-              {r.rows_daily>0&&<div className="pr-stat-item">daily: <span className="pr-stat-val">{r.rows_daily}</span></div>}
-              {r.rows_hourly>0&&<div className="pr-stat-item">hourly: <span className="pr-stat-val">{r.rows_hourly}</span></div>}
-              <div className="pr-stat-item">ok: <span className="pr-stat-val" style={{color:'var(--green)'}}>{r.stations_ok}</span></div>
-              {r.stations_fail>0&&<div className="pr-stat-item">fail: <span className="pr-stat-val" style={{color:'var(--red)'}}>{r.stations_fail}</span></div>}
-            </div>
+      <div className="grid-2">
+        {/* Left Column: Pipeline Runs */}
+        <div>
+          <div className="section-header" style={{marginTop:8}}><span className="section-title">Pipeline Runs</span></div>
+          <div className="card" style={{marginBottom:16}}>
+            {data.pipeline_runs.length === 0 ? (
+              <div className="empty-state">No pipeline run data available.</div>
+            ) : data.pipeline_runs.map((r,i)=>(
+              <div key={i} className="pipeline-row">
+                <div className="pr-type">{r.type}</div>
+                <div style={{padding:'9px 4px'}}><span className={`tag ${(r.status||'').toLowerCase()}`}>{r.status}</span></div>
+                <div className="pr-time">{r.started ? fmt.ts(r.started) : '—'}</div>
+                <div className="pr-stats">
+                  {r.rows_daily>0&&<div className="pr-stat-item">daily: <span className="pr-stat-val">{r.rows_daily}</span></div>}
+                  {r.rows_hourly>0&&<div className="pr-stat-item">hourly: <span className="pr-stat-val">{r.rows_hourly}</span></div>}
+                  <div className="pr-stat-item">ok: <span className="pr-stat-val" style={{color:'var(--green)'}}>{r.stations_ok}</span></div>
+                  {r.stations_fail>0&&<div className="pr-stat-item">fail: <span className="pr-stat-val" style={{color:'var(--red)'}}>{r.stations_fail}</span></div>}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{data.open_positions.length} active</span></div>
-      <div className="card">
-        {data.open_positions.length === 0 ? (
-          <div className="empty-state">No open positions.</div>
-        ) : (
-          <table className="data-table"><thead><tr><th>Ticker</th><th>Type</th><th>Bin</th><th>Entry</th><th>Contracts</th></tr></thead>
-            <tbody>{data.open_positions.map((p,i)=>(
-              <tr key={i}>
-                <td style={{color:'var(--text-dim)',fontSize:10}}>{p.ticker||'—'}</td>
-                <td><span className={`tag ${((p.target_type||'')).toLowerCase()}`}>{p.target_type}</span></td>
-                <td style={{color:'var(--cyan)',fontSize:11}}>{p.bin_lower?.toFixed(0)}–{p.bin_upper?.toFixed(0)}°F</td>
-                <td style={{color:'var(--amber)'}}>{(p.entry_price||0).toFixed(2)}</td>
-                <td style={{color:'var(--text-bright)'}}>{p.contracts}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        )}
+        </div>
+
+        {/* Right Column: Open Positions */}
+        <div>
+          <div className="section-header" style={{marginTop:8}}><span className="section-title">Open Positions</span><span className="section-sub">{data.open_positions.length} active</span></div>
+          <div className="card" style={{marginBottom:16}}>
+            {data.open_positions.length === 0 ? (
+              <div className="empty-state">No open positions.</div>
+            ) : (
+              <table className="data-table"><thead><tr><th>Ticker</th><th>Type</th><th>Bin</th><th>Entry</th><th>Contracts</th></tr></thead>
+                <tbody>{data.open_positions.map((p,i)=>(
+                  <tr key={i}>
+                    <td style={{color:'var(--text-dim)',fontSize:10}}>{p.ticker||'—'}</td>
+                    <td><span className={`tag ${((p.target_type||'')).toLowerCase()}`}>{p.target_type}</span></td>
+                    <td style={{color:'var(--cyan)',fontSize:11}}>{p.bin_lower?.toFixed(0)}–{p.bin_upper?.toFixed(0)}°F</td>
+                    <td style={{color:'var(--amber)'}}>{(p.entry_price||0).toFixed(2)}</td>
+                    <td style={{color:'var(--text-bright)'}}>{p.contracts}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
