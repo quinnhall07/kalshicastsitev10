@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDbConnection } from '../../../../lib/db';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,13 +8,39 @@ export async function GET() {
   let kalshiBalance = null;
   let kalshiError = null;
 
-  // 1. Hit Kalshi for real-time balance
+  // 1. Hit Kalshi for real-time balance using V2 ECDSA/RSA Auth
   try {
+    const keyId = process.env.KALSHI_KEY_ID;
+    let privateKey = process.env.KALSHI_PRIVATE_KEY;
+
+    if (!keyId || !privateKey) {
+      throw new Error("Missing KALSHI_KEY_ID or KALSHI_PRIVATE_KEY in environment variables.");
+    }
+
+    // Format the private key to handle escaped newlines if passed as a single line in .env
+    privateKey = privateKey.replace(/\\n/g, '\n');
+
+    const timestamp = Date.now().toString();
+    const method = 'GET';
+    const path = '/trade-api/v2/portfolio/balance';
+
+    // Kalshi requires signing the concatenated string of: timestamp + method + path
+    const msgString = timestamp + method + path;
+
+    const sign = crypto.createSign('SHA256');
+    sign.update(msgString);
+    sign.end();
+    
+    // Generate base64 signature
+    const signature = sign.sign(privateKey, 'base64');
+
     const res = await fetch(
-      'https://trading-api.kalshi.com/trade-api/rest/v2/portfolio/balance',
+      `https://trading-api.kalshi.com${path}`,
       {
         headers: {
-          'Authorization': `Bearer ${process.env.KALSHI_API_TOKEN}`,
+          'KALSHI-ACCESS-KEY': keyId,
+          'KALSHI-ACCESS-SIGNATURE': signature,
+          'KALSHI-ACCESS-TIMESTAMP': timestamp,
           'Accept': 'application/json',
         },
         cache: 'no-store',
@@ -24,10 +51,13 @@ export async function GET() {
       const body = await res.json();
       kalshiBalance = (body.balance ?? 0) / 100;
     } else {
-      kalshiError = `Kalshi API ${res.status}`;
+      const errorText = await res.text();
+      kalshiError = `Kalshi API ${res.status}: ${errorText}`;
+      console.error(kalshiError);
     }
   } catch (e) {
     kalshiError = e.message;
+    console.error('Kalshi Auth/Fetch Error:', e);
   }
 
   // 2. Read DB balance as fallback + open positions tracking
@@ -38,7 +68,7 @@ export async function GET() {
   try {
     connection = await getDbConnection();
     
-    // CORRECTED SQL: Uses STATUS and OUTCOME to find unsettled positions
+    // Uses STATUS and OUTCOME to find unsettled positions
     const [metricsResult, posResult] = await Promise.all([
       connection.execute(
         `SELECT bankroll, portfolio_value 
@@ -59,7 +89,7 @@ export async function GET() {
     openPositionsValue = parseFloat(posResult.rows?.[0]?.[0]) || 0;
 
     // 3. Write back to DB (Upsert)
-    // CORRECTED SQL: Uses COMPUTED_AT instead of last_updated
+    // Uses COMPUTED_AT instead of last_updated
     if (kalshiBalance !== null) {
       await connection.execute(
         `MERGE INTO financial_metrics tgt USING DUAL 
