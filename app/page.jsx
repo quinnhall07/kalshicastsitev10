@@ -1862,12 +1862,24 @@ const STATUS_SERVICES = [
   },
 ];
 
+// CLOCK
+function UTCClock() {
+  const [now, setNow] = useState(null);
+  
+  useEffect(() => {
+    setNow(new Date()); // Set initial time only on the client
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!now) return <span>--:--:--</span>;
+  return <span>{now.toISOString().slice(11, 19)}</span>;
+}
+
 // ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data, loading, refresh } = useData();
   const [tab,setTab]=useState('overview');
-  const [now,setNow]=useState(new Date());
-  const [mounted, setMounted] = useState(false);
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
 
@@ -1885,12 +1897,6 @@ export default function Dashboard() {
     const t = setInterval(fetchBalance, 30_000);
     return () => clearInterval(t);
   }, []);
-
-  useEffect(()=>{
-    setMounted(true);
-    const t=setInterval(()=>setNow(new Date()),1000);
-    return()=>clearInterval(t);
-  },[]);
 
   const openModal  = useCallback((type,ticker)=>setModal({type,ticker}),[]);
   const closeModal = useCallback(()=>setModal({type:null,ticker:null}),[]);
@@ -2000,7 +2006,7 @@ export default function Dashboard() {
             <div className="tmet">
               <div className="tmet-label">UTC</div>
               <div className="tmet-val" style={{fontSize:11}}>
-                {mounted ? now.toISOString().slice(11,19) : '--:--:--'}
+                <UTCClock />
               </div>
             </div>
           </div>
