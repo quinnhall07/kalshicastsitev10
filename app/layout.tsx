@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "KalshiCast Dashboard",
-  description: "KalshiCast System Dashboard",
+  title: "Kalshicast",
+  description: "Kalshicast System Dashboard",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
