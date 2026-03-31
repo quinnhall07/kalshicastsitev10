@@ -27,12 +27,12 @@ export async function GET() {
     // Kalshi requires signing the concatenated string of: timestamp + method + path
     const msgString = timestamp + method + path;
 
-    const sign = crypto.createSign('SHA256');
-    sign.update(msgString);
-    sign.end();
-    
-    // Generate base64 signature
-    const signature = sign.sign(privateKey, 'base64');
+    // IMPORTANT: Kalshi V2 Auth strictly requires RSA-PSS padding
+    const signature = crypto.sign('sha256', Buffer.from(msgString), {
+      key: privateKey,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST
+    }).toString('base64');
 
     const res = await fetch(
       `https://api.elections.kalshi.com${path}`,
