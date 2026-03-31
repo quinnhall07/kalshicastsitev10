@@ -385,7 +385,6 @@ function useData() {
       if (status === 'fulfilled') merged[endpoints[i][1]] = value;
     });
 
-    // Preserve db_connected from the system endpoint result
     if (results[0].status === 'fulfilled') {
       merged.system.db_connected = true;
     }
@@ -394,23 +393,11 @@ function useData() {
     setLoading(false);
   }, []);
 
-  // In Dashboard component, alongside useData:
-const [liveBalance, setLiveBalance] = useState(null);
-
-useEffect(() => {
-  const fetchBalance = () =>
-    fetch('/api/kalshi/balance')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => d && setLiveBalance(d))
-      .catch(() => {});
-
-  fetchBalance();
-  const t = setInterval(fetchBalance, 30_000);
-  return () => clearInterval(t);
-}, []);
-
-// Then in the topbar, prefer liveBalance over data.system.bankroll:
-const displayBankroll = liveBalance?.balance ?? s.bankroll;
+  useEffect(() => {
+    fetchAll();
+    const t = setInterval(fetchAll, 60_000);
+    return () => clearInterval(t);
+  }, [fetchAll]);
 
   return { data, loading, refresh: fetchAll };
 }
@@ -819,10 +806,16 @@ function AuditContent({ data }) {
 }
 
 // ─── TAB: OVERVIEW ────────────────────────────────────────────────────────────
-function OverviewTab({ data, onToggleTrading }) {
+function OverviewTab({ data, liveBalance, onToggleTrading }) {
   const s = data.system;
+  
+  // Calculate display values
+  const displayBankroll = liveBalance?.balance ?? s.bankroll ?? 0;
+  const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
+  
   const winRate = s.n_bets_total > 0 ? s.n_bets_won / s.n_bets_total : 0;
   const mddFill = Math.min(s.mdd_alltime / 0.20, 1) * 100;
+  
   return (
     <div className="section fadein">
       <div className="section-header">
@@ -832,12 +825,14 @@ function OverviewTab({ data, onToggleTrading }) {
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <div className="stat-box">
           <div className="stat-label">Bankroll{s.paper_mode ? ' — Paper' : ' — Live'}</div>
-          <div className="stat-val amber">${s.bankroll.toFixed(2)}</div>
+          {/* Use displayBankroll */}
+          <div className="stat-val amber">${displayBankroll.toFixed(2)}</div>
           <div className="stat-sub" style={{color: s.paper_mode ? 'var(--cyan)' : 'var(--green)'}}>{s.paper_mode ? '📄 Paper mode' : '🔴 Live trading'}</div>
         </div>
         <div className="stat-box">
           <div className="stat-label">Portfolio Value</div>
-          <div className="stat-val">${s.portfolio_value.toFixed(2)}</div>
+          {/* Use displayPortfolio */}
+          <div className="stat-val">${displayPortfolio.toFixed(2)}</div>
           <div className="stat-sub" style={{color:s.cumulative_pnl>=0?'var(--green)':'var(--red)'}}>{fmt.usd(s.cumulative_pnl)} cumulative</div>
         </div>
         <div className="stat-box">
@@ -1654,6 +1649,21 @@ export default function Dashboard() {
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
 
+  // 1. ADD KALSHI LIVE BALANCE POLLING HERE
+  const [liveBalance, setLiveBalance] = useState(null);
+  
+  useEffect(() => {
+    const fetchBalance = () =>
+      fetch('/api/kalshi/balance')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setLiveBalance(d))
+        .catch(() => {});
+        
+    fetchBalance();
+    const t = setInterval(fetchBalance, 30_000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(()=>{
     const t=setInterval(()=>setNow(new Date()),1000);
     return()=>clearInterval(t);
@@ -1708,6 +1718,11 @@ export default function Dashboard() {
   );
 
   const s = data.system || {};
+  
+  // 2. DEFINE THE DISPLAY VALUES
+  const displayBankroll = liveBalance?.balance ?? s.bankroll ?? 0;
+  const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
+  
   const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
   const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
   const staleStations=(data.stations||[]).filter(s=>s.metar_age_min>=120).length;
@@ -1734,7 +1749,7 @@ export default function Dashboard() {
           <div className="topbar-metrics">
             <div className="tmet">
               <div className="tmet-label">Bankroll{s.paper_mode ? ' \u00b7 Paper' : ' \u00b7 Live'}</div>
-              <div className="tmet-val amber">${(s.bankroll||0).toFixed(2)}</div>
+              <div className="tmet-val amber">${displayBankroll.toFixed(2)}</div>
             </div>
             <div className="tmet">
               <div className="tmet-label">Daily P&L</div>
@@ -1803,7 +1818,7 @@ export default function Dashboard() {
 
         {/* CONTENT */}
         <div className="content">
-          {tab==='overview'  && <OverviewTab  data={data} onToggleTrading={toggleTrading}/>}
+          {tab==='overview'  && <OverviewTab  data={data} liveBalance={liveBalance} onToggleTrading={toggleTrading}/>}
           {tab==='positions' && <PositionsTab data={data} onOpenModal={openModal}/>}
           {tab==='bets'      && <BetsTab      data={data}/>}
           {tab==='alerts'    && <AlertsTab    data={data} onResolve={resolveAlert}/>}
