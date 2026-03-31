@@ -46,8 +46,6 @@ const css = `
     --purple: #a855f7; --teal: #14b8a6;
   }
 
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
-
   body { background:var(--bg0); color:var(--text); font-family:var(--font-mono); font-size:12px; line-height:1.5; overflow:hidden; }
   .shell { display:flex; flex-direction:column; height:100vh; width:100vw; background:var(--bg0); }
 
@@ -396,11 +394,23 @@ function useData() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    fetchAll();
-    const t = setInterval(fetchAll, 60_000);
-    return () => clearInterval(t);
-  }, [fetchAll]);
+  // In Dashboard component, alongside useData:
+const [liveBalance, setLiveBalance] = useState(null);
+
+useEffect(() => {
+  const fetchBalance = () =>
+    fetch('/api/kalshi/balance')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setLiveBalance(d))
+      .catch(() => {});
+
+  fetchBalance();
+  const t = setInterval(fetchBalance, 30_000);
+  return () => clearInterval(t);
+}, []);
+
+// Then in the topbar, prefer liveBalance over data.system.bankroll:
+const displayBankroll = liveBalance?.balance ?? s.bankroll;
 
   return { data, loading, refresh: fetchAll };
 }

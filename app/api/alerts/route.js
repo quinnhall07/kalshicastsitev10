@@ -9,7 +9,7 @@ export async function GET() {
     connection = await getDbConnection();
     const result = await connection.execute(
       `SELECT alert_id, alert_type, severity_score, alert_ts, 
-              station_id, is_resolved, details_json 
+              station_id, source_id, is_resolved, details_json 
        FROM system_alerts 
        ORDER BY alert_ts DESC 
        FETCH FIRST 50 ROWS ONLY`
@@ -21,15 +21,18 @@ export async function GET() {
       severity: row[2] || 0,
       ts: row[3] ? new Date(row[3]).toISOString() : null,
       station: row[4],
-      resolved: row[5] === 1,
-      detail: row[6] ? String(row[6]) : "No details provided."
+      source: row[5],
+      resolved: row[6] === 1,
+      detail: row[7] ? String(row[7]) : "No details provided."
     }));
 
     return NextResponse.json(alerts);
   } catch (error) {
-    console.error("Oracle DB Error:", error);
-    return NextResponse.json([], { status: 500 });
+    console.error("Oracle DB Error in /api/alerts:", error);
+    return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
   } finally {
-    if (connection) try { await connection.close(); } catch (e) {}
+    if (connection) {
+      try { await connection.close(); } catch (e) { console.error(e); }
+    }
   }
 }

@@ -7,36 +7,42 @@ export async function GET() {
   let connection;
   try {
     connection = await getDbConnection();
+    
+    // Joins BRIER_SCORES (b) with POSITIONS (p) to return graded bets
     const result = await connection.execute(
-      `SELECT ticker, station_id, target_date, target_type, 
-              bin_lower, bin_upper, entry_price, contracts, outcome, pnl_net, order_type 
-       FROM positions 
-       WHERE status IN ('CLOSED', 'SETTLED') OR outcome IS NOT NULL
-       ORDER BY target_date DESC 
+      `SELECT p.ticker, p.station_id, p.target_date, p.target_type, 
+              p.bin_lower, p.bin_upper, p.entry_price, p.actual_fill_price, 
+              p.contracts, p.pnl_net, b.outcome, b.brier_score, b.graded_at,
+              b.p_win_at_grading
+       FROM positions p
+       JOIN brier_scores b ON p.ticker = b.ticker
+       ORDER BY b.graded_at DESC 
        FETCH FIRST 100 ROWS ONLY`
     );
     
     const bets = result.rows.map(row => ({
       ticker: row[0],
-      station: row[1],
+      station_id: row[1],
       target_date: row[2] ? new Date(row[2]).toISOString().split('T')[0] : null,
-      type: row[3],
+      target_type: row[3],
       bin: `${row[4]}–${row[5]}°F`,
       entry_price: row[6] || 0,
-      contracts: row[7] || 0,
-      outcome: row[8],
+      actual_fill_price: row[7] || 0,
+      contracts: row[8] || 0,
       pnl_net: row[9] || 0,
-      order_type: row[10],
-      // Assuming p_win_at_entry is roughly the entry price for the scatter plot fallback
-      // unless you join this with BEST_BETS in the future.
-      p_win_at_entry: (row[6] || 0) + (row[9] > 0 ? 0.05 : -0.05) 
+      outcome: row[10],
+      brier_score: row[11],
+      graded_at: row[12] ? new Date(row[12]).toISOString() : null,
+      p_win_at_grading: row[13] || 0
     }));
 
     return NextResponse.json(bets);
   } catch (error) {
-    console.error("Oracle DB Error:", error);
-    return NextResponse.json([], { status: 500 });
+    console.error("Oracle DB Error in /api/bets:", error);
+    return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
   } finally {
-    if (connection) try { await connection.close(); } catch (e) {}
+    if (connection) {
+      try { await connection.close(); } catch (e) { console.error(e); }
+    }
   }
 }

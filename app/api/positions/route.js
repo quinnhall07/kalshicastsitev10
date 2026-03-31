@@ -8,25 +8,32 @@ export async function GET() {
   try {
     connection = await getDbConnection();
     
-    // Query your real POSITIONS table
+    // Selects active positions that haven't been settled yet
     const result = await connection.execute(
-      `SELECT target_date, station_id, target_type, contracts, entry_price 
+      `SELECT position_id, ticker, station_id, target_date, target_type, 
+              bin_lower, bin_upper, entry_price, contracts, order_type, status 
        FROM positions 
-       WHERE status = 'OPEN' 
+       WHERE status IN ('OPEN', 'FILLED') AND outcome IS NULL
        ORDER BY target_date ASC`
     );
     
-    // Map the rows into an array of objects for the frontend
     const positions = result.rows.map(row => ({
-      target_date: row[0],
-      station_id: row[1],
-      target_type: row[2],
-      contracts: row[3],
-      entry_price: row[4]
+      position_id: row[0],
+      ticker: row[1],
+      station_id: row[2],
+      target_date: row[3] ? new Date(row[3]).toISOString().split('T')[0] : null,
+      target_type: row[4],
+      bin_lower: row[5],
+      bin_upper: row[6],
+      entry_price: row[7],
+      contracts: row[8],
+      order_type: row[9],
+      status: row[10]
     }));
 
     return NextResponse.json(positions);
   } catch (error) {
+    console.error("Oracle DB Error in /api/positions:", error);
     return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
   } finally {
     if (connection) {
