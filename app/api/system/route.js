@@ -18,13 +18,22 @@ export async function GET() {
        ORDER BY metric_date DESC 
        FETCH FIRST 1 ROWS ONLY`
     );
+
+    const paramResult = await connection.execute(
+      `SELECT param_value FROM params WHERE param_key = 'system.trading_halted'`
+    );
+
+    let isHalted = false;
+    if (paramResult.rows && paramResult.rows.length > 0) {
+      isHalted = paramResult.rows[0][0] === 'true';
+    }
     
     // Default fallback state with new metrics included
     let systemData = {
-      trading_halted: false, 
+      trading_halted: isHalted, 
       db_connected: true, 
       last_checked: new Date().toISOString(),
-      bankroll: 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
+      bankroll: row[0] || 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
       mdd_alltime: 0, mdd_rolling_90: 0, cal: 0, 
       n_bets_total: 0, n_bets_won: 0, n_bets_lost: 0,
       sr_dollar: 0, sr_simple: 0, sharpe_rolling_30: 0, fdr: 0, eur: 0, market_cal: 0

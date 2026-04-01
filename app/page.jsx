@@ -285,6 +285,26 @@ const css = `
   .overflow-auto { overflow:auto; }
   .overflow-auto::-webkit-scrollbar { width:3px; height:3px; }
   .overflow-auto::-webkit-scrollbar-thumb { background:var(--border2); }
+
+  /* NUCLEAR LAUNCH MODAL */
+  .nuke-overlay { position:fixed; inset:0; background:rgba(10,0,0,0.92); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; animation:fadeIn 0.2s ease; }
+  .nuke-box { border: 2px solid var(--red); background: #000; padding: 40px 30px; width: 440px; max-width: 95vw; text-align: center; box-shadow: 0 0 50px rgba(232,64,64,0.15), inset 0 0 20px rgba(232,64,64,0.1); position: relative; overflow: hidden; }
+  .nuke-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 10px, transparent 10px, transparent 20px); }
+  .nuke-box::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(-45deg, var(--red) 0, var(--red) 10px, transparent 10px, transparent 20px); }
+  
+  .nuke-header { color: var(--red); font-size: 20px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 24px; animation: pulse 1.2s infinite; text-shadow: 0 0 10px var(--red); }
+  .nuke-text { color: var(--text); font-size: 11px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 0.15em; line-height: 1.6; }
+  
+  .nuke-input-wrap { position: relative; margin-bottom: 24px; }
+  .nuke-input { width: 100%; background: rgba(232,64,64,0.05); border: 1px solid var(--red-dim); color: var(--red); font-size: 28px; text-align: center; padding: 12px; font-family: var(--font-mono); letter-spacing: 0.4em; outline: none; transition: all 0.2s; }
+  .nuke-input:focus { border-color: var(--red); box-shadow: 0 0 20px rgba(232,64,64,0.3), inset 0 0 10px rgba(232,64,64,0.2); background: rgba(232,64,64,0.1); }
+  .nuke-input::placeholder { color: rgba(232,64,64,0.3); letter-spacing: 0.2em; font-size: 18px; }
+  
+  .nuke-btn { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); font-family: var(--font-mono); font-size: 14px; font-weight: 700; padding: 14px; width: 100%; cursor: pointer; text-transform: uppercase; letter-spacing: 0.2em; transition: all 0.2s; position: relative; z-index: 20; }
+  .nuke-btn:hover:not(:disabled) { background: var(--red); color: #000; box-shadow: 0 0 20px var(--red); }
+  .nuke-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--border); color: var(--text-dim); background: transparent; }
+  
+  .nuke-scanline { position: absolute; top:0; left:0; right:0; bottom:0; background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.4) 51%); background-size: 100% 4px; pointer-events: none; z-index: 10; opacity: 0.8; }
 `;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -2316,27 +2336,46 @@ export default function Dashboard() {
   const openModal  = useCallback((type,ticker)=>setModal({type,ticker}),[]);
   const closeModal = useCallback(()=>setModal({type:null,ticker:null}),[]);
 
-  const toggleTrading = useCallback(async () => {
-    if (!data || halting) return;
-    const newHalted = !data.system.trading_halted;
+  // Add this inside the Dashboard component, right after the other state declarations:
+  const [haltModal, setHaltModal] = useState({ open: false, targetState: false, password: '', error: '' });
+
+  // Replace your existing toggleTrading function with these two functions:
+  const requestToggleTrading = useCallback(() => {
+    if (!data) return;
+    setHaltModal({ 
+      open: true, 
+      targetState: !data.system.trading_halted, 
+      password: '', 
+      error: '' 
+    });
+  }, [data]);
+
+  const confirmToggleTrading = useCallback(async () => {
     setHalting(true);
+    setHaltModal(prev => ({ ...prev, error: '' }));
     try {
       const res = await fetch('/api/system/halt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ halted: newHalted }),
+        body: JSON.stringify({ 
+          halted: haltModal.targetState, 
+          password: haltModal.password 
+        }),
       });
+      
       if (res.ok) {
         await refresh();
+        setHaltModal({ open: false, targetState: false, password: '', error: '' });
       } else {
-        console.error('Halt API returned', res.status);
+        const errData = await res.json();
+        setHaltModal(prev => ({ ...prev, error: errData.error || 'Invalid password' }));
       }
     } catch (e) {
-      console.error('Failed to toggle trading halt:', e);
+      setHaltModal(prev => ({ ...prev, error: 'Network error occurred' }));
     } finally {
       setHalting(false);
     }
-  }, [data, halting, refresh]);
+  }, [haltModal.targetState, haltModal.password, refresh]);
 
   const resolveAlert = useCallback(async (id) => {
     try {
@@ -2357,6 +2396,69 @@ export default function Dashboard() {
             Connecting to KalshiCast DB…
           </div>
         </div>
+        {/* HALT PASSWORD MODAL */}
+        {haltModal.open && (
+          {/* NUCLEAR HALT PASSWORD MODAL */}
+          {haltModal.open && (
+            <div 
+              className="nuke-overlay" 
+              onClick={e => e.target === e.currentTarget && setHaltModal(prev => ({ ...prev, open: false }))}
+            >
+              <div className="nuke-box">
+                <div className="nuke-scanline"></div>
+                
+                <div className="nuke-header">
+                  ⚠ {haltModal.targetState ? 'CRITICAL OVERRIDE' : 'SYSTEM RESTORATION'} ⚠
+                </div>
+                
+                <div className="nuke-text">
+                  {haltModal.targetState
+                    ? "Authorization required to initiate emergency trading halt. All active algorithms will be suspended."
+                    : "Authorization required to restore automated trading protocols and resume market execution."}
+                </div>
+                
+                <div className="nuke-input-wrap">
+                  <input
+                    type="password"
+                    className="nuke-input"
+                    placeholder="[ ENTER CODES ]"
+                    value={haltModal.password}
+                    onChange={e => setHaltModal(prev => ({ ...prev, password: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && haltModal.password && confirmToggleTrading()}
+                    autoFocus
+                    spellCheck="false"
+                    autoComplete="off"
+                  />
+                </div>
+
+                {haltModal.error && (
+                  <div style={{ color: 'var(--red)', fontSize: '11px', marginBottom: '18px', fontWeight: 600, letterSpacing: '0.15em', textShadow: '0 0 8px var(--red)' }}>
+                    [ ERROR: {haltModal.error.toUpperCase()} ]
+                  </div>
+                )}
+
+                <button
+                  className="nuke-btn"
+                  onClick={confirmToggleTrading}
+                  disabled={halting || !haltModal.password}
+                >
+                  {halting ? 'VERIFYING SIGNATURE...' : haltModal.targetState ? 'EXECUTE HALT PROTOCOL' : 'AUTHORIZE RESUME'}
+                </button>
+                
+                <div style={{ marginTop: '24px', fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.2em', position: 'relative', z-index: 20 }}>
+                  <span 
+                    style={{ cursor: 'pointer', transition: 'color 0.2s' }} 
+                    onMouseEnter={e => e.target.style.color = 'var(--text-bright)'}
+                    onMouseLeave={e => e.target.style.color = 'var(--text-dim)'}
+                    onClick={() => setHaltModal(prev => ({ ...prev, open: false }))}
+                  >
+                    [ ABORT SEQUENCE ]
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        )}
       </div>
     </>
   );
@@ -2437,7 +2539,7 @@ export default function Dashboard() {
             </div>
             <button
               className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
-              onClick={toggleTrading}
+              onClick={requestToggleTrading}
               disabled={halting}
             >
               {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
