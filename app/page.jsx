@@ -287,7 +287,7 @@ const css = `
   .overflow-auto::-webkit-scrollbar-thumb { background:var(--border2); }
 
   /* NUCLEAR LAUNCH MODAL */
-  .nuke-overlay { position:fixed; inset:0; background:rgba(10,0,0,0.5); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; animation:fadeIn 0.2s ease; }
+  .nuke-overlay { position:fixed; inset:0; background:rgba(10,0,0,0.3); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; animation:fadeIn 0.2s ease; }
   .nuke-box { border: 2px solid var(--red); background: #000; padding: 40px 30px; width: 440px; max-width: 95vw; text-align: center; box-shadow: 0 0 50px rgba(232,64,64,0.15), inset 0 0 20px rgba(232,64,64,0.1); position: relative; overflow: hidden; }
   .nuke-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 10px, transparent 10px, transparent 20px); }
   .nuke-box::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(-45deg, var(--red) 0, var(--red) 10px, transparent 10px, transparent 20px); }
@@ -2406,9 +2406,24 @@ export default function Dashboard() {
   
   const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
   const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
-  const staleStations=(data.stations||[]).filter(s=>s.metar_age_min>=120).length;
-  const systemStatus=s.trading_halted?'error':unresolvedAlerts>0?'warn':'ok';
-  const systemLabel=s.trading_halted?'HALTED':unresolvedAlerts>0?`${unresolvedAlerts} ALERT${unresolvedAlerts>1?'S':''}`:('NOMINAL');
+  const staleStations=(data.stations||[]).filter(st=>st.metar_age_min>=120).length;
+
+  // --- NEW STATE LOGIC ---
+  let systemStatus = 'ok';
+  let systemLabel = 'TRADING: ONLINE';
+
+  if (s.trading_halted) {
+    systemStatus = 'error';
+    systemLabel = 'TRADING: HALTED';
+  } else if (s.trading_offline) {
+    systemStatus = 'warn';
+    // Split on '|' to only show the first reason if there are multiple, to keep the badge small
+    const shortReason = s.offline_reason ? s.offline_reason.split('|')[0].trim() : 'MDD/BANKROLL';
+    systemLabel = `OFFLINE: ${shortReason}`;
+  } else if (unresolvedAlerts > 0) {
+    systemStatus = 'warn';
+    systemLabel = `ONLINE (${unresolvedAlerts} ALERT${unresolvedAlerts > 1 ? 'S' : ''})`;
+  }
 
   const tabBadges={
     alerts:unresolvedAlerts>0?{n:unresolvedAlerts,cls:'red'}:null,

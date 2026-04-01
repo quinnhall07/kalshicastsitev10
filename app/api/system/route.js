@@ -55,25 +55,28 @@ export async function GET() {
       };
     }
 
-    // 2. Fetch Halt Status SAFELY
+    // 2. Fetch System States (Halt & Offline) SAFELY
     const paramResult = await connection.execute(
-      `SELECT param_value FROM params WHERE param_key = 'system.trading_halted'`
+      `SELECT param_key, param_value FROM params 
+       WHERE param_key IN ('system.trading_halted', 'system.trading_offline', 'system.offline_reason')`
     );
     
+    // Set defaults for the new parameters
+    systemData.trading_offline = false;
+    systemData.offline_reason = 'Algorithmic Stop';
+
     if (paramResult.rows && paramResult.rows.length > 0) {
-      const pRow = paramResult.rows[0];
-      // Safely extract the boolean whether it's an object or array
-      const val = (typeof pRow === 'object' && !Array.isArray(pRow)) ? pRow.PARAM_VALUE : pRow[0];
-      systemData.trading_halted = (val === 'true');
+      for (const pRow of paramResult.rows) {
+        // Safely extract whether it's an object or array
+        const key = (typeof pRow === 'object' && !Array.isArray(pRow)) ? pRow.PARAM_KEY : pRow[0];
+        const val = (typeof pRow === 'object' && !Array.isArray(pRow)) ? pRow.PARAM_VALUE : pRow[1];
+        
+        if (key === 'system.trading_halted') systemData.trading_halted = (val === 'true');
+        if (key === 'system.trading_offline') systemData.trading_offline = (val === 'true');
+        if (key === 'system.offline_reason') systemData.offline_reason = val;
+      }
     }
 
     return NextResponse.json(systemData);
-  } catch (error) {
-    console.error("Oracle DB Error in /api/system:", error);
-    return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
-  } finally {
-    if (connection) {
-      try { await connection.close(); } catch (e) { console.error(e); }
-    }
   }
 }
