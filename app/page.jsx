@@ -2318,7 +2318,6 @@ export default function Dashboard() {
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
 
-  // 1. ADD KALSHI LIVE BALANCE POLLING HERE
   const [liveBalance, setLiveBalance] = useState(null);
   
   useEffect(() => {
@@ -2336,11 +2335,10 @@ export default function Dashboard() {
   const openModal  = useCallback((type,ticker)=>setModal({type,ticker}),[]);
   const closeModal = useCallback(()=>setModal({type:null,ticker:null}),[]);
 
-  // Add this inside the Dashboard component, right after the other state declarations:
   const [haltModal, setHaltModal] = useState({ open: false, targetState: false, password: '', error: '' });
 
-  // Replace your existing toggleTrading function with these two functions:
-  const requestToggleTrading = useCallback(() => {
+  // 1. Fixed function name back to toggleTrading
+  const toggleTrading = useCallback(() => {
     if (!data) return;
     setHaltModal({ 
       open: true, 
@@ -2384,6 +2382,7 @@ export default function Dashboard() {
     await refresh();
   }, [refresh]);
 
+  // 2. Cleaned up loading screen (removed duplicate modal)
   if (loading || !data) return (
     <>
       <style>{css}</style>
@@ -2396,73 +2395,12 @@ export default function Dashboard() {
             Connecting to KalshiCast DB…
           </div>
         </div>
-          {/* NUCLEAR HALT PASSWORD MODAL */}
-          {haltModal.open && (
-            <div 
-              className="nuke-overlay" 
-              onClick={e => e.target === e.currentTarget && setHaltModal(prev => ({ ...prev, open: false }))}
-            >
-              <div className="nuke-box">
-                <div className="nuke-scanline"></div>
-                
-                <div className="nuke-header">
-                  ⚠ {haltModal.targetState ? 'CRITICAL OVERRIDE' : 'SYSTEM RESTORATION'} ⚠
-                </div>
-                
-                <div className="nuke-text">
-                  {haltModal.targetState
-                    ? "Authorization required to initiate emergency trading halt. All active algorithms will be suspended."
-                    : "Authorization required to restore automated trading protocols and resume market execution."}
-                </div>
-                
-                <div className="nuke-input-wrap">
-                  <input
-                    type="password"
-                    className="nuke-input"
-                    placeholder="[ ENTER CODES ]"
-                    value={haltModal.password}
-                    onChange={e => setHaltModal(prev => ({ ...prev, password: e.target.value }))}
-                    onKeyDown={e => e.key === 'Enter' && haltModal.password && confirmToggleTrading()}
-                    autoFocus
-                    spellCheck="false"
-                    autoComplete="off"
-                  />
-                </div>
-
-                {haltModal.error && (
-                  <div style={{ color: 'var(--red)', fontSize: '11px', marginBottom: '18px', fontWeight: 600, letterSpacing: '0.15em', textShadow: '0 0 8px var(--red)' }}>
-                    [ ERROR: {haltModal.error.toUpperCase()} ]
-                  </div>
-                )}
-
-                <button
-                  className="nuke-btn"
-                  onClick={confirmToggleTrading}
-                  disabled={halting || !haltModal.password}
-                >
-                  {halting ? 'VERIFYING SIGNATURE...' : haltModal.targetState ? 'EXECUTE HALT PROTOCOL' : 'AUTHORIZE RESUME'}
-                </button>
-                
-                <div style={{ marginTop: '24px', fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.2em', position: 'relative', zIndex: 20 }}>
-                  <span 
-                    style={{ cursor: 'pointer', transition: 'color 0.2s' }} 
-                    onMouseEnter={e => e.target.style.color = 'var(--text-bright)'}
-                    onMouseLeave={e => e.target.style.color = 'var(--text-dim)'}
-                    onClick={() => setHaltModal(prev => ({ ...prev, open: false }))}
-                  >
-                    [ ABORT SEQUENCE ]
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
       </div>
     </>
   );
 
   const s = data.system || {};
   
-  // 2. DEFINE THE DISPLAY VALUES
   const displayBankroll = liveBalance?.balance ?? s.bankroll ?? 0;
   const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
   
@@ -2534,9 +2472,10 @@ export default function Dashboard() {
               <div className={`status-dot ${systemStatus}`}/>
               {systemLabel}
             </div>
+            {/* 3. Uses toggleTrading now */}
             <button
               className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
-              onClick={requestToggleTrading}
+              onClick={toggleTrading}
               disabled={halting}
             >
               {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
@@ -2582,6 +2521,66 @@ export default function Dashboard() {
         {modal.type==='ibe'   && <IBEModal          ticker={modal.ticker} onClose={closeModal}/>}
         {modal.type==='audit' && <AuditModal        ticker={modal.ticker} onClose={closeModal}/>}
 
+        {/* 4. Nuclear Modal properly placed */}
+        {haltModal.open && (
+          <div 
+            className="nuke-overlay" 
+            onClick={e => e.target === e.currentTarget && setHaltModal(prev => ({ ...prev, open: false }))}
+          >
+            <div className="nuke-box">
+              <div className="nuke-scanline"></div>
+              
+              <div className="nuke-header">
+                ⚠ {haltModal.targetState ? 'CRITICAL OVERRIDE' : 'SYSTEM RESTORATION'} ⚠
+              </div>
+              
+              <div className="nuke-text">
+                {haltModal.targetState
+                  ? "Authorization required to initiate emergency trading halt. All active algorithms will be suspended."
+                  : "Authorization required to restore automated trading protocols and resume market execution."}
+              </div>
+              
+              <div className="nuke-input-wrap">
+                <input
+                  type="password"
+                  className="nuke-input"
+                  placeholder="[ ENTER CODES ]"
+                  value={haltModal.password}
+                  onChange={e => setHaltModal(prev => ({ ...prev, password: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && haltModal.password && confirmToggleTrading()}
+                  autoFocus
+                  spellCheck="false"
+                  autoComplete="off"
+                />
+              </div>
+
+              {haltModal.error && (
+                <div style={{ color: 'var(--red)', fontSize: '11px', marginBottom: '18px', fontWeight: 600, letterSpacing: '0.15em', textShadow: '0 0 8px var(--red)' }}>
+                  [ ERROR: {haltModal.error.toUpperCase()} ]
+                </div>
+              )}
+
+              <button
+                className="nuke-btn"
+                onClick={confirmToggleTrading}
+                disabled={halting || !haltModal.password}
+              >
+                {halting ? 'VERIFYING SIGNATURE...' : haltModal.targetState ? 'EXECUTE HALT PROTOCOL' : 'AUTHORIZE RESUME'}
+              </button>
+              
+              <div style={{ marginTop: '24px', fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.2em', position: 'relative', zIndex: 20 }}>
+                <span 
+                  style={{ cursor: 'pointer', transition: 'color 0.2s' }} 
+                  onMouseEnter={e => e.target.style.color = 'var(--text-bright)'}
+                  onMouseLeave={e => e.target.style.color = 'var(--text-dim)'}
+                  onClick={() => setHaltModal(prev => ({ ...prev, open: false }))}
+                >
+                  [ ABORT SEQUENCE ]
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   ); 
