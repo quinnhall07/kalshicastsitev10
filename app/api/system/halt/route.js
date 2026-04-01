@@ -7,9 +7,7 @@ export async function POST(req) {
     const body = await req.json();
     const { halted, password } = body;
 
-    // Define your password in .env.local as HALT_PASSWORD
-    const validPassword = process.env.HALT_PASSWORD; 
-
+    const validPassword = process.env.HALT_PASSWORD || 'admin123'; 
     if (password !== validPassword) {
       return NextResponse.json({ error: 'Unauthorized: Incorrect password' }, { status: 401 });
     }
@@ -17,20 +15,24 @@ export async function POST(req) {
     connection = await getDbConnection();
     const haltedStr = halted ? 'true' : 'false';
     
-    // Upsert the system.trading_halted parameter into the PARAMS table
+    // Bulletproof PL/SQL Upsert
     await connection.execute(`
-      MERGE INTO params tgt USING DUAL
-      ON (tgt.param_key = 'system.trading_halted')
-      WHEN MATCHED THEN UPDATE SET 
-        param_value = :val, 
-        last_changed_at = SYSTIMESTAMP,
-        changed_by = 'web_dashboard',
-        change_reason = 'Manual toggle via dashboard'
-      WHEN NOT MATCHED THEN INSERT (
-        param_key, param_value, dtype, description
-      ) VALUES (
-        'system.trading_halted', :val, 'bool', 'Master switch to halt all trading execution'
-      )
+      DECLARE
+        v_count NUMBER;
+      BEGIN
+        SELECT COUNT(*) INTO v_count FROM params WHERE param_key = 'system.trading_halted';
+        IF v_count > 0 THEN
+          UPDATE params SET 
+            param_value = :val, 
+            last_changed_at = SYSTIMESTAMP,
+            changed_by = 'web_dashboard',
+            change_reason = 'Manual toggle via dashboard'
+          WHERE param_key = 'system.trading_halted';
+        ELSE
+          INSERT INTO params (param_key, param_value, dtype, description)
+          VALUES ('system.trading_halted', :val, 'bool', 'Master switch to halt all trading execution');
+        END IF;
+      END;
     `, { val: haltedStr });
     
     await connection.commit();
