@@ -2443,7 +2443,7 @@ export default function Dashboard() {
                   {halting ? 'VERIFYING SIGNATURE...' : haltModal.targetState ? 'EXECUTE HALT PROTOCOL' : 'AUTHORIZE RESUME'}
                 </button>
                 
-                <div style={{ marginTop: '24px', fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.2em', position: 'relative', z-index: 20 }}>
+                <div style={{ marginTop: '24px', fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.2em', position: 'relative', zIndex: 20 }}>
                   <span 
                     style={{ cursor: 'pointer', transition: 'color 0.2s' }} 
                     onMouseEnter={e => e.target.style.color = 'var(--text-bright)'}
