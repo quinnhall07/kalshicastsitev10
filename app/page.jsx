@@ -1862,215 +1862,6 @@ const STATUS_SERVICES = [
   },
 ];
 
-// CLOCK
-function UTCClock() {
-  const [now, setNow] = useState(null);
-  
-  useEffect(() => {
-    setNow(new Date()); // Set initial time only on the client
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  if (!now) return <span>--:--:--</span>;
-  return <span>{now.toISOString().slice(11, 19)}</span>;
-}
-
-// ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
-export default function Dashboard() {
-  const { data, loading, refresh } = useData();
-  const [tab,setTab]=useState('overview');
-  const [modal,setModal]=useState({type:null,ticker:null});
-  const [halting,setHalting]=useState(false);
-
-  // 1. ADD KALSHI LIVE BALANCE POLLING HERE
-  const [liveBalance, setLiveBalance] = useState(null);
-  
-  useEffect(() => {
-    const fetchBalance = () =>
-      fetch('/api/kalshi/balance')
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d && setLiveBalance(d))
-        .catch(() => {});
-        
-    fetchBalance();
-    const t = setInterval(fetchBalance, 30_000);
-    return () => clearInterval(t);
-  }, []);
-
-  const openModal  = useCallback((type,ticker)=>setModal({type,ticker}),[]);
-  const closeModal = useCallback(()=>setModal({type:null,ticker:null}),[]);
-
-  const toggleTrading = useCallback(async () => {
-    if (!data || halting) return;
-    const newHalted = !data.system.trading_halted;
-    setHalting(true);
-    try {
-      const res = await fetch('/api/system/halt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ halted: newHalted }),
-      });
-      if (res.ok) {
-        await refresh();
-      } else {
-        console.error('Halt API returned', res.status);
-      }
-    } catch (e) {
-      console.error('Failed to toggle trading halt:', e);
-    } finally {
-      setHalting(false);
-    }
-  }, [data, halting, refresh]);
-
-  const resolveAlert = useCallback(async (id) => {
-    try {
-      await fetch(`/api/alerts/${id}/resolve`, { method: 'PATCH' });
-    } catch (e) {}
-    await refresh();
-  }, [refresh]);
-
-  if (loading || !data) return (
-    <>
-      <style>{css}</style>
-      <div className="shell">
-        <div className="loading-screen">
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[0,1,2].map(i=>(<div key={i} className="loading-dot" style={{animationDelay:`${i*0.2}s`}}/>))}
-          </div>
-          <div style={{fontSize:10,color:'var(--text-dim)',letterSpacing:'0.1em',textTransform:'uppercase'}}>
-            Connecting to KalshiCast DB…
-          </div>
-        </div>
-      </div>
-    </>
-  );
-
-  const s = data.system || {};
-  
-  // 2. DEFINE THE DISPLAY VALUES
-  const displayBankroll = liveBalance?.balance ?? s.bankroll ?? 0;
-  const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
-  
-  const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
-  const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
-  const staleStations=(data.stations||[]).filter(s=>s.metar_age_min>=120).length;
-  const systemStatus=s.trading_halted?'error':unresolvedAlerts>0?'warn':'ok';
-  const systemLabel=s.trading_halted?'HALTED':unresolvedAlerts>0?`${unresolvedAlerts} ALERT${unresolvedAlerts>1?'S':''}`:('NOMINAL');
-
-  const tabBadges={
-    alerts:unresolvedAlerts>0?{n:unresolvedAlerts,cls:'red'}:null,
-    stations:staleStations>0?{n:staleStations,cls:'amber'}:null,
-    positions:{n:(data.open_positions||[]).length,cls:'green'},
-  };
-
-  return (
-    <>
-      <style>{css}</style>
-      <div className="shell">
-
-        {/* TOP BAR */}
-        <div className="topbar">
-          <div className="logo">
-            <div className="logo-dot" style={s.trading_halted?{background:'var(--red)',boxShadow:'0 0 8px var(--red)'}:{}}/>
-            Kalshicast
-            <span style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.05em', marginLeft: '4px' }}>
-              BY KNOWLU
-            </span>
-          </div>
-          <div className="topbar-metrics">
-            <div className="tmet">
-              <div className="tmet-label">Bankroll{s.paper_mode ? ' \u00b7 Paper' : ' \u00b7 Live'}</div>
-              <div className="tmet-val amber">${displayBankroll.toFixed(2)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Daily P&L</div>
-              <div className={`tmet-val ${(s.daily_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.daily_pnl||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Cumulative</div>
-              <div className={`tmet-val ${(s.cumulative_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.cumulative_pnl||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">MDD</div>
-              <div className="tmet-val warn">{fmt.pct2(s.mdd_alltime||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Win Rate</div>
-              <div className="tmet-val">{fmt.pct(winRate)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Open Pos.</div>
-              <div className="tmet-val">{(data.open_positions||[]).length}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">UTC</div>
-              <div className="tmet-val" style={{fontSize:11}}>
-                <UTCClock />
-              </div>
-            </div>
-          </div>
-          <div className="topbar-right">
-            {s.paper_mode !== undefined && (
-              <div className={`status-badge ${s.paper_mode ? 'paper' : 'live-mode'}`}>
-                {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
-              </div>
-            )}
-            <div className={`status-badge ${systemStatus}`}>
-              <div className={`status-dot ${systemStatus}`}/>
-              {systemLabel}
-            </div>
-            <button
-              className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
-              onClick={toggleTrading}
-              disabled={halting}
-            >
-              {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
-            </button>
-          </div>
-        </div>
-
-        {/* TABS */}
-        <div className="tabs">
-          {TABS.map(t => {
-            const badge = tabBadges[t.id];
-            return (
-              <div key={t.id} className={`tab${tab===t.id?' active':''}`} onClick={()=>setTab(t.id)}>
-                {t.label}
-                {badge && <span className={`tab-badge ${badge.cls}`}>{badge.n}</span>}
-              </div>
-            );
-          })}
-          <div style={{flex:1}}/>
-          <div style={{padding:'0 12px',display:'flex',alignItems:'center',fontSize:9,color:'var(--text-dim)'}}>
-            DB:&nbsp;
-            <span style={{color:s.db_connected?'var(--green)':'var(--red)',fontWeight:600}}>
-              {s.db_connected?'CONNECTED':'DISCONNECTED'}
-            </span>
-          </div>
-        </div>
-
-        {/* CONTENT */}
-        <div className="content">
-          {tab==='overview'  && <OverviewTab  data={data} liveBalance={liveBalance} onToggleTrading={toggleTrading}/>}
-          {tab==='positions' && <PositionsTab data={data} onOpenModal={openModal}/>}
-          {tab==='bets'      && <BetsTab      data={data}/>}
-          {tab==='alerts'    && <AlertsTab    data={data} onResolve={resolveAlert}/>}
-          {tab==='params'    && <ParamsTab    data={data}/>}
-          {tab==='bss'       && <BSSTab       data={data}/>}
-          {tab==='stations'  && <StationsTab  data={data}/>}
-          {tab==='models'    && <ModelsTab    data={data}/>}
-          {tab==='status'    && <StatusTab    data={data}/>}
-        </div>
-
-        {/* MODALS */}
-        {modal.type==='dist'  && <DistributionModal ticker={modal.ticker} onClose={closeModal}/>}
-        {modal.type==='ibe'   && <IBEModal          ticker={modal.ticker} onClose={closeModal}/>}
-        {modal.type==='audit' && <AuditModal        ticker={modal.ticker} onClose={closeModal}/>}
-
-      </div>
-    </>
-  ); 
 // ─── TOOLTIP ──────────────────────────────────────────────────────────────────
  
 function StatusTooltip({ day, service, mouseX, mouseY }) {
@@ -2485,4 +2276,214 @@ function StatusTab() {
     </div>
   );
 }
+
+// CLOCK
+function UTCClock() {
+  const [now, setNow] = useState(null);
+  
+  useEffect(() => {
+    setNow(new Date()); // Set initial time only on the client
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!now) return <span>--:--:--</span>;
+  return <span>{now.toISOString().slice(11, 19)}</span>;
+}
+
+// ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const { data, loading, refresh } = useData();
+  const [tab,setTab]=useState('overview');
+  const [modal,setModal]=useState({type:null,ticker:null});
+  const [halting,setHalting]=useState(false);
+
+  // 1. ADD KALSHI LIVE BALANCE POLLING HERE
+  const [liveBalance, setLiveBalance] = useState(null);
+  
+  useEffect(() => {
+    const fetchBalance = () =>
+      fetch('/api/kalshi/balance')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setLiveBalance(d))
+        .catch(() => {});
+        
+    fetchBalance();
+    const t = setInterval(fetchBalance, 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const openModal  = useCallback((type,ticker)=>setModal({type,ticker}),[]);
+  const closeModal = useCallback(()=>setModal({type:null,ticker:null}),[]);
+
+  const toggleTrading = useCallback(async () => {
+    if (!data || halting) return;
+    const newHalted = !data.system.trading_halted;
+    setHalting(true);
+    try {
+      const res = await fetch('/api/system/halt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ halted: newHalted }),
+      });
+      if (res.ok) {
+        await refresh();
+      } else {
+        console.error('Halt API returned', res.status);
+      }
+    } catch (e) {
+      console.error('Failed to toggle trading halt:', e);
+    } finally {
+      setHalting(false);
+    }
+  }, [data, halting, refresh]);
+
+  const resolveAlert = useCallback(async (id) => {
+    try {
+      await fetch(`/api/alerts/${id}/resolve`, { method: 'PATCH' });
+    } catch (e) {}
+    await refresh();
+  }, [refresh]);
+
+  if (loading || !data) return (
+    <>
+      <style>{css}</style>
+      <div className="shell">
+        <div className="loading-screen">
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[0,1,2].map(i=>(<div key={i} className="loading-dot" style={{animationDelay:`${i*0.2}s`}}/>))}
+          </div>
+          <div style={{fontSize:10,color:'var(--text-dim)',letterSpacing:'0.1em',textTransform:'uppercase'}}>
+            Connecting to KalshiCast DB…
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const s = data.system || {};
+  
+  // 2. DEFINE THE DISPLAY VALUES
+  const displayBankroll = liveBalance?.balance ?? s.bankroll ?? 0;
+  const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
+  
+  const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
+  const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
+  const staleStations=(data.stations||[]).filter(s=>s.metar_age_min>=120).length;
+  const systemStatus=s.trading_halted?'error':unresolvedAlerts>0?'warn':'ok';
+  const systemLabel=s.trading_halted?'HALTED':unresolvedAlerts>0?`${unresolvedAlerts} ALERT${unresolvedAlerts>1?'S':''}`:('NOMINAL');
+
+  const tabBadges={
+    alerts:unresolvedAlerts>0?{n:unresolvedAlerts,cls:'red'}:null,
+    stations:staleStations>0?{n:staleStations,cls:'amber'}:null,
+    positions:{n:(data.open_positions||[]).length,cls:'green'},
+  };
+
+  return (
+    <>
+      <style>{css}</style>
+      <div className="shell">
+
+        {/* TOP BAR */}
+        <div className="topbar">
+          <div className="logo">
+            <div className="logo-dot" style={s.trading_halted?{background:'var(--red)',boxShadow:'0 0 8px var(--red)'}:{}}/>
+            Kalshicast
+            <span style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.05em', marginLeft: '4px' }}>
+              BY KNOWLU
+            </span>
+          </div>
+          <div className="topbar-metrics">
+            <div className="tmet">
+              <div className="tmet-label">Bankroll{s.paper_mode ? ' \u00b7 Paper' : ' \u00b7 Live'}</div>
+              <div className="tmet-val amber">${displayBankroll.toFixed(2)}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">Daily P&L</div>
+              <div className={`tmet-val ${(s.daily_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.daily_pnl||0)}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">Cumulative</div>
+              <div className={`tmet-val ${(s.cumulative_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.cumulative_pnl||0)}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">MDD</div>
+              <div className="tmet-val warn">{fmt.pct2(s.mdd_alltime||0)}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">Win Rate</div>
+              <div className="tmet-val">{fmt.pct(winRate)}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">Open Pos.</div>
+              <div className="tmet-val">{(data.open_positions||[]).length}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">UTC</div>
+              <div className="tmet-val" style={{fontSize:11}}>
+                <UTCClock />
+              </div>
+            </div>
+          </div>
+          <div className="topbar-right">
+            {s.paper_mode !== undefined && (
+              <div className={`status-badge ${s.paper_mode ? 'paper' : 'live-mode'}`}>
+                {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
+              </div>
+            )}
+            <div className={`status-badge ${systemStatus}`}>
+              <div className={`status-dot ${systemStatus}`}/>
+              {systemLabel}
+            </div>
+            <button
+              className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
+              onClick={toggleTrading}
+              disabled={halting}
+            >
+              {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
+            </button>
+          </div>
+        </div>
+
+        {/* TABS */}
+        <div className="tabs">
+          {TABS.map(t => {
+            const badge = tabBadges[t.id];
+            return (
+              <div key={t.id} className={`tab${tab===t.id?' active':''}`} onClick={()=>setTab(t.id)}>
+                {t.label}
+                {badge && <span className={`tab-badge ${badge.cls}`}>{badge.n}</span>}
+              </div>
+            );
+          })}
+          <div style={{flex:1}}/>
+          <div style={{padding:'0 12px',display:'flex',alignItems:'center',fontSize:9,color:'var(--text-dim)'}}>
+            DB:&nbsp;
+            <span style={{color:s.db_connected?'var(--green)':'var(--red)',fontWeight:600}}>
+              {s.db_connected?'CONNECTED':'DISCONNECTED'}
+            </span>
+          </div>
+        </div>
+
+        {/* CONTENT */}
+        <div className="content">
+          {tab==='overview'  && <OverviewTab  data={data} liveBalance={liveBalance} onToggleTrading={toggleTrading}/>}
+          {tab==='positions' && <PositionsTab data={data} onOpenModal={openModal}/>}
+          {tab==='bets'      && <BetsTab      data={data}/>}
+          {tab==='alerts'    && <AlertsTab    data={data} onResolve={resolveAlert}/>}
+          {tab==='params'    && <ParamsTab    data={data}/>}
+          {tab==='bss'       && <BSSTab       data={data}/>}
+          {tab==='stations'  && <StationsTab  data={data}/>}
+          {tab==='models'    && <ModelsTab    data={data}/>}
+          {tab==='status'    && <StatusTab    data={data}/>}
+        </div>
+
+        {/* MODALS */}
+        {modal.type==='dist'  && <DistributionModal ticker={modal.ticker} onClose={closeModal}/>}
+        {modal.type==='ibe'   && <IBEModal          ticker={modal.ticker} onClose={closeModal}/>}
+        {modal.type==='audit' && <AuditModal        ticker={modal.ticker} onClose={closeModal}/>}
+
+      </div>
+    </>
+  ); 
 }
