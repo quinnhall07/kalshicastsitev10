@@ -2396,8 +2396,6 @@ export default function Dashboard() {
             Connecting to KalshiCast DB…
           </div>
         </div>
-        {/* HALT PASSWORD MODAL */}
-        {haltModal.open && (
           {/* NUCLEAR HALT PASSWORD MODAL */}
           {haltModal.open && (
             <div 
