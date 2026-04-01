@@ -287,12 +287,12 @@ const css = `
   .overflow-auto::-webkit-scrollbar-thumb { background:var(--border2); }
 
   /* NUCLEAR LAUNCH MODAL */
-  .nuke-overlay { position:fixed; inset:0; background:rgba(10,0,0,0.92); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; animation:fadeIn 0.2s ease; }
+  .nuke-overlay { position:fixed; inset:0; background:rgba(10,0,0,0.5); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; animation:fadeIn 0.2s ease; }
   .nuke-box { border: 2px solid var(--red); background: #000; padding: 40px 30px; width: 440px; max-width: 95vw; text-align: center; box-shadow: 0 0 50px rgba(232,64,64,0.15), inset 0 0 20px rgba(232,64,64,0.1); position: relative; overflow: hidden; }
   .nuke-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(45deg, var(--red) 0, var(--red) 10px, transparent 10px, transparent 20px); }
   .nuke-box::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 6px; background: repeating-linear-gradient(-45deg, var(--red) 0, var(--red) 10px, transparent 10px, transparent 20px); }
   
-  .nuke-header { color: var(--red); font-size: 20px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 24px; animation: pulse 1.2s infinite; text-shadow: 0 0 10px var(--red); }
+  .nuke-header { color: var(--red); font-size: 18px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 24px; animation: pulse 1.2s infinite; text-shadow: 0 0 10px var(--red); }
   .nuke-text { color: var(--text); font-size: 11px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 0.15em; line-height: 1.6; }
   
   .nuke-input-wrap { position: relative; margin-bottom: 24px; }
