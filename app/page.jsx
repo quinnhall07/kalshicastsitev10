@@ -74,6 +74,9 @@ const css = `
   .btn-halt.active { background:var(--red); color:#fff; box-shadow:0 0 12px rgba(232,64,64,0.5); }
   .btn-halt.active:hover { background:#ff5555; }
   .btn-halt.halted { background:var(--green); color:#000; box-shadow:0 0 12px rgba(46,192,122,0.5); }
+  /* TOPBAR BUTTONS */
+  .btn-topbar { padding:4px 10px; border-radius:2px; font-family:var(--font-mono); font-size:10px; font-weight:600; cursor:pointer; border:1px solid var(--border2); background:transparent; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em; transition:all 0.15s; display:flex; align-items:center; gap:6px; }
+  .btn-topbar:hover { background:var(--bg2); color:var(--text-bright); border-color:var(--text-dim); }
 
   /* TABS */
   .tabs { display:flex; align-items:flex-end; background:var(--bg1); border-bottom:1px solid var(--border); flex-shrink:0; height:36px; }
@@ -403,6 +406,11 @@ function useData() {
       const results = await Promise.allSettled(
         endpoints.map(([ep]) =>
           fetch(ep, { signal }).then(r => { 
+            // Detect if middleware redirected us to login due to expired cookie
+            if (r.redirected && r.url.includes('/login')) {
+              window.location.href = '/login';
+              throw new Error('Authentication expired');
+            }
             if (!r.ok) throw new Error(r.status); 
             return r.json(); 
           })
@@ -454,19 +462,15 @@ function useData() {
 function useApiFetch(url) {
   const [state, setState] = useState({ loading: Boolean(url), data: null, error: null });
 
-  useEffect(() => {
-    if (!url) {
-      setState({ loading: false, data: null, error: null });
-      return;
-    }
-    setState(s => ({ ...s, loading: true, error: null }));
-    let cancelled = false;
-    fetch(url)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(data => { if (!cancelled) setState({ loading: false, data, error: null }); })
-      .catch(err => { if (!cancelled) setState({ loading: false, data: null, error: err.message }); });
-    return () => { cancelled = true; };
-  }, [url]);
+  fetch(url)
+      .then(r => { 
+        if (r.redirected && r.url.includes('/login')) {
+          window.location.href = '/login';
+          throw new Error('Authentication expired');
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`); 
+        return r.json(); 
+      })
 
   return state;
 }
@@ -2320,6 +2324,15 @@ export default function Dashboard() {
 
   const [liveBalance, setLiveBalance] = useState(null);
   
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    } catch (e) {
+      console.error('Logout failed', e);
+    }
+  };
+
   useEffect(() => {
     const fetchBalance = () =>
       fetch('/api/kalshi/balance')
@@ -2478,6 +2491,10 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="topbar-right">
+            {/* NEW BUTTONS */}
+            <button className="btn-topbar">⚙ Settings</button>
+            <button className="btn-topbar" onClick={handleLogout}>🚪 Logout</button>
+
             {s.paper_mode !== undefined && (
               <div className={`status-badge ${s.paper_mode ? 'paper' : 'live-mode'}`}>
                 {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
