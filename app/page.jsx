@@ -2537,6 +2537,7 @@ export default function Dashboard() {
                 {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
               </div>
             )}
+          </div>
         </div>
 
         {/* TABS */}
