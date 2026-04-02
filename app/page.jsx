@@ -406,16 +406,13 @@ function useData() {
       ['/api/bets',           'recent_bets'],
       ['/api/alerts',         'alerts'],
       ['/api/params',         'params'],
-      //['/api/bss-matrix',     'bss_matrix'],
-      //['/api/stations',       'stations'],
-      //['/api/kalman-states',  'kalman_states'],
+      ['/api/gh-actions',     'gh_actions'], // ADD THIS ENDPOINT
     ];
 
     try {
       const results = await Promise.allSettled(
         endpoints.map(([ep]) =>
           fetch(ep, { signal }).then(r => { 
-            // Detect if middleware redirected us to login due to expired cookie
             if (r.redirected && r.url.includes('/login')) {
               window.location.href = '/login';
               throw new Error('Authentication expired');
@@ -426,7 +423,6 @@ function useData() {
         )
       );
 
-      // Prevent state updates if the component unmounted or request was aborted
       if (signal && signal.aborted) return;
 
       const merged = { ...EMPTY_STATE, system: { ...EMPTY_STATE.system } };
@@ -438,32 +434,52 @@ function useData() {
         merged.system.db_connected = true;
       }
 
+      // --- NEW LOGIC: Inject GitHub Action Failures ---
+      if (merged.gh_actions && merged.gh_actions.workflow_runs) {
+        const failedRuns = merged.gh_actions.workflow_runs.filter(r => r.conclusion === 'failure');
+
+        // 1. Add to Overview Pipeline Runs
+        const ghPipelineRuns = failedRuns.map(r => ({
+          run_id: `gh-${r.id}`,
+          type: r.name,
+          status: 'error', // Will use the red error CSS tag
+          started: r.created_at,
+          completed: r.updated_at,
+          rows_daily: 0, rows_hourly: 0, stations_ok: 0, stations_fail: 0,
+          html_url: r.html_url
+        }));
+
+        merged.pipeline_runs = [...merged.pipeline_runs, ...ghPipelineRuns]
+          .sort((a,b) => new Date(b.started) - new Date(a.started))
+          .slice(0, 15); // Keep list concise
+
+        // 2. Add to System Alerts (Last 48 hours only)
+        const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+        const ghAlerts = failedRuns
+          .filter(r => new Date(r.updated_at).getTime() > cutoff)
+          .map(r => ({
+            id: `gh-${r.id}`,
+            type: 'WORKFLOW_FAILURE',
+            severity: 0.9,
+            ts: r.updated_at,
+            station: null,
+            source: 'github',
+            resolved: false,
+            detail: `GitHub Action "${r.name}" failed.`,
+            html_url: r.html_url
+          }));
+
+        merged.alerts = [...ghAlerts, ...merged.alerts].sort((a,b) => new Date(b.ts) - new Date(a.ts));
+      }
+
       setData(merged);
       setLoading(false);
     } catch (e) {
-      if (e.name !== 'AbortError') {
-        console.error('Data fetch error:', e);
-      }
+      if (e.name !== 'AbortError') console.error('Data fetch error:', e);
     }
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    
-    // Initial fetch
-    fetchAll(controller.signal);
-    
-    // Poll every 60 seconds
-    const t = setInterval(() => fetchAll(controller.signal), 60_000);
-    
-    // Cleanup on unmount
-    return () => { 
-      controller.abort(); 
-      clearInterval(t); 
-    };
-  }, [fetchAll]);
-
-  // Wrap manual refresh so it doesn't accidentally pass the event object as the signal
+  // ... (keep useEffect for polling)
   return { data, loading, refresh: () => fetchAll() };
 }
 
@@ -1296,7 +1312,23 @@ function AlertsTab({ data, onResolve }) {
             <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{a.ts ? fmt.ts(a.ts) : '—'}</span>
             {!a.resolved&&<button onClick={()=>onResolve(a.id)} style={{padding:'1px 8px',background:'transparent',border:'1px solid var(--border2)',color:'var(--text-dim)',cursor:'pointer',borderRadius:2,fontSize:9,fontFamily:'var(--font-mono)'}}>Resolve</button>}
           </div>
-          <div style={{fontSize:10,color:'var(--text-dim)'}}>{typeof a.detail==='string'?a.detail:JSON.stringify(a.detail)}</div>
+          <div style={{fontSize:10,color:'var(--text-dim)'}}>
+            {typeof a.detail === 'string' && a.detail.includes('html_url') ? (
+              <>
+                {JSON.parse(a.detail).error}
+                <a 
+                  href={JSON.parse(a.detail).html_url} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  style={{color:'var(--cyan)', marginLeft:8}}
+                >
+                  View Logs ↗
+                </a>
+              </>
+            ) : (
+              typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)
+            )}
+          </div>
           {a.resolved&&<div style={{fontSize:9,color:'var(--muted)',marginTop:3}}>RESOLVED</div>}
         </div>
       ))}
