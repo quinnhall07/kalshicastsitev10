@@ -406,7 +406,8 @@ function useData() {
       ['/api/bets',           'recent_bets'],
       ['/api/alerts',         'alerts'],
       ['/api/params',         'params'],
-      ['/api/gh-actions',     'gh_actions'], // ADD THIS ENDPOINT
+      // We removed gh-actions from here because the Python backend script 
+      // is now handling it directly through the database!
     ];
 
     try {
@@ -426,60 +427,48 @@ function useData() {
       if (signal && signal.aborted) return;
 
       const merged = { ...EMPTY_STATE, system: { ...EMPTY_STATE.system } };
+      
       results.forEach(({ status, value }, i) => {
-        if (status === 'fulfilled') merged[endpoints[i][1]] = value;
+        const key = endpoints[i][1];
+        if (status === 'fulfilled') {
+          // Safety check: Don't let an API error object overwrite an array default
+          if (Array.isArray(EMPTY_STATE[key]) && !Array.isArray(value)) {
+            console.warn(`Expected array for ${key}, got:`, value);
+          } else {
+            merged[key] = value;
+          }
+        }
       });
 
       if (results[0].status === 'fulfilled') {
         merged.system.db_connected = true;
       }
 
-      // --- NEW LOGIC: Inject GitHub Action Failures ---
-      if (merged.gh_actions && merged.gh_actions.workflow_runs) {
-        const failedRuns = merged.gh_actions.workflow_runs.filter(r => r.conclusion === 'failure');
-
-        // 1. Add to Overview Pipeline Runs
-        const ghPipelineRuns = failedRuns.map(r => ({
-          run_id: `gh-${r.id}`,
-          type: r.name,
-          status: 'error', // Will use the red error CSS tag
-          started: r.created_at,
-          completed: r.updated_at,
-          rows_daily: 0, rows_hourly: 0, stations_ok: 0, stations_fail: 0,
-          html_url: r.html_url
-        }));
-
-        merged.pipeline_runs = [...merged.pipeline_runs, ...ghPipelineRuns]
-          .sort((a,b) => new Date(b.started) - new Date(a.started))
-          .slice(0, 15); // Keep list concise
-
-        // 2. Add to System Alerts (Last 48 hours only)
-        const cutoff = Date.now() - 48 * 60 * 60 * 1000;
-        const ghAlerts = failedRuns
-          .filter(r => new Date(r.updated_at).getTime() > cutoff)
-          .map(r => ({
-            id: `gh-${r.id}`,
-            type: 'WORKFLOW_FAILURE',
-            severity: 0.9,
-            ts: r.updated_at,
-            station: null,
-            source: 'github',
-            resolved: false,
-            detail: `GitHub Action "${r.name}" failed.`,
-            html_url: r.html_url
-          }));
-
-        merged.alerts = [...ghAlerts, ...merged.alerts].sort((a,b) => new Date(b.ts) - new Date(a.ts));
-      }
-
       setData(merged);
-      setLoading(false);
+      
     } catch (e) {
-      if (e.name !== 'AbortError') console.error('Data fetch error:', e);
+      if (e.name !== 'AbortError') {
+        console.error('Data fetch error:', e);
+      }
+    } finally {
+      // CRITICAL FIX: This ensures the loading screen ALWAYS clears,
+      // even if something throws an error inside the try block.
+      if (!signal || !signal.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  // ... (keep useEffect for polling)
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAll(controller.signal);
+    const t = setInterval(() => fetchAll(controller.signal), 60_000);
+    return () => { 
+      controller.abort(); 
+      clearInterval(t); 
+    };
+  }, [fetchAll]);
+
   return { data, loading, refresh: () => fetchAll() };
 }
 
