@@ -2492,7 +2492,7 @@ export default function Dashboard() {
           </div>
           <div className="topbar-right">
             {/* NEW BUTTONS */}
-            <button className="btn-topbar" style={{font-size: 16; border: none;}}>⚙</button>
+            <button className="btn-topbar" style={{font-size: 16; border: 'none';}}>⚙</button>
             <button className="btn-topbar" onClick={handleLogout}>Logout</button>
 
             {s.paper_mode !== undefined && (
