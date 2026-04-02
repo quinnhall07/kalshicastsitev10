@@ -1919,6 +1919,7 @@ const STATUS_SERVICES = [
 // ─── TOOLTIP ──────────────────────────────────────────────────────────────────
  
 function StatusTooltip({ day, service, mouseX, mouseY }) {
+  if (!barRect || !day || !service) return null;
   const details  = service.getDetails(day);
   const health   = day.health[service.healthKey];
   const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
@@ -2097,7 +2098,10 @@ function StatusServiceRow({ service, days, onBarEnter, onBarLeave }) {
                 cursor: day ? 'default' : 'default',
                 transition: 'filter 0.08s',
               }}
-              onMouseEnter={day ? (e) => onBarEnter(e.currentTarget.getBoundingClientRect(), day, service) : undefined}
+              onMouseEnter={day ? (e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                onBarEnter({ top: r.top, left: r.left, width: r.width }, day, service);
+              } : undefined}
               onMouseLeave={day ? onBarLeave : undefined}
             />
           );
