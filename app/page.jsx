@@ -1918,13 +1918,12 @@ const STATUS_SERVICES = [
 
 // ─── TOOLTIP ──────────────────────────────────────────────────────────────────
  
-function StatusTooltip({ day, service, mouseX, mouseY }) {
+function StatusTooltip({ day, service, barRect }) {
   if (!barRect || !day || !service) return null;
   const details  = service.getDetails(day);
   const health   = day.health[service.healthKey];
   const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
   const barColor = HEALTH_COLORS[health];
-  const isNearTop = mouseY < 220;
   const centerX = barRect.left + barRect.width / 2;
   const safeX = Math.min(
     Math.max(centerX - TW / 2, 8),
@@ -2318,7 +2317,7 @@ function StatusTab() {
       )}
  
       {/* Tooltip rendered last so it floats above everything */}
-      {tooltip && (
+      {tooltip && tooltip.barRect && (
         <StatusTooltip
           day={tooltip.day}
           service={tooltip.service}
