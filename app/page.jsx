@@ -1925,11 +1925,11 @@ function StatusTooltip({ day, service, barRect }) {
   const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
   const barColor = HEALTH_COLORS[health];
   const centerX = barRect.left + barRect.width / 2;
+  const TW = 270;
   const safeX = Math.min(
     Math.max(centerX - TW / 2, 8),
     (typeof window !== 'undefined' ? window.innerWidth : 1200) - TW - 8
   );
-  const TW = 270;
  
   const fmtDate = (iso) => {
     if (!iso) return '—';
