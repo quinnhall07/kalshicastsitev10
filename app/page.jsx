@@ -1924,6 +1924,11 @@ function StatusTooltip({ day, service, mouseX, mouseY }) {
   const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
   const barColor = HEALTH_COLORS[health];
   const isNearTop = mouseY < 220;
+  const centerX = barRect.left + barRect.width / 2;
+  const safeX = Math.min(
+    Math.max(centerX - TW / 2, 8),
+    (typeof window !== 'undefined' ? window.innerWidth : 1200) - TW - 8
+  );
  
   const fmtDate = (iso) => {
     if (!iso) return '—';
@@ -1946,8 +1951,8 @@ function StatusTooltip({ day, service, mouseX, mouseY }) {
       style={{
         position:    'fixed',
         left:        safeX,
-        top:       isNearTop ? mouseY + 16 : mouseY - 8,
-        transform: isNearTop ? 'none' : 'translateY(-100%)',
+        top: barRect.top - 12,
+        transform: 'translateY(-100%)',
         zIndex:      2000,
         width:       TW,
         background:  'var(--bg2)',
@@ -2098,8 +2103,7 @@ function StatusServiceRow({ service, days, onBarEnter, onBarLeave }) {
                 cursor: day ? 'default' : 'default',
                 transition: 'filter 0.08s',
               }}
-              onMouseEnter={day ? (e) => onBarEnter(e, day, service) : undefined}
-              onMouseMove={day ? (e) => onBarEnter(e, day, service) : undefined}
+              onMouseEnter={day ? (e) => onBarEnter(e.currentTarget.getBoundingClientRect(), day, service) : undefined}
               onMouseLeave={day ? onBarLeave : undefined}
             />
           );
@@ -2138,13 +2142,8 @@ function StatusTab() {
       .catch(e => { setError(e.message); setLoading(false); });
   }, []);
  
-  const handleBarEnter = (e, day, service) => {
-    setTooltip({
-      day,
-      service,
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-    });
+  const handleBarEnter = (barRect, day, service) => {
+    setTooltip({ day, service, barRect });
   };
  
   const handleBarLeave = () => setTooltip(null);
@@ -2325,8 +2324,7 @@ function StatusTab() {
         <StatusTooltip
           day={tooltip.day}
           service={tooltip.service}
-          mouseX={tooltip.mouseX}
-          mouseY={tooltip.mouseY}
+          barRect={tooltip.barRect}
         />
       )}
     </div>
