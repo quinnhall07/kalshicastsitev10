@@ -362,7 +362,7 @@ function kalmanBiasStyle(bk, uk) {
 // ─── TABS ─────────────────────────────────────────────────────────────────────
 const TABS = [
   {id:"overview",label:"Overview"},{id:"positions",label:"Positions"},
-  {id:"bets",label:"Recent Bets"},{id:"alerts",label:"Alerts"},
+  {id:"bets",label:"Recent Bets"},{id:"paper", label:"Paper"},{id:"alerts",label:"Alerts"},
   {id:"params",label:"Parameters"},{id:"bss",label:"BSS Matrix"},
   {id:"stations",label:"Stations"},{id:"models",label:"Models"},
   {id:"status",label:"Status"},
@@ -2355,6 +2355,620 @@ function UTCClock() {
   return <span>{now.toISOString().slice(11, 19)}</span>;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Equity curve + daily bars chart
+// ─────────────────────────────────────────────────────────────────────────────
+function PaperEquityChart({ days }) {
+  if (!days?.length) {
+    return (
+      <div className="empty-state">
+        <div className="icon">📈</div>
+        No equity data yet — run the market-open pipeline then the night pipeline to settle positions.
+      </div>
+    );
+  }
+ 
+  const W = 620, H = 180, ml = 52, mr = 16, mt = 12, mb = 36;
+  const iW = W - ml - mr, iH = H - mt - mb;
+ 
+  const cumPnls  = days.map(d => d.cumulative_pnl);
+  const dailyPnl = days.map(d => d.daily_pnl);
+  const minC = Math.min(...cumPnls, 0);
+  const maxC = Math.max(...cumPnls, 0.01);
+  const rangeC = (maxC - minC) || 1;
+ 
+  const n  = days.length;
+  const sx = i => ml + (i / Math.max(n - 1, 1)) * iW;
+  const sy = v => H - mb - ((v - minC) / rangeC) * iH;
+  const zero = Math.max(mt, Math.min(H - mb, sy(0)));
+ 
+  const linePath = days.map((d, i) =>
+    `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)},${sy(d.cumulative_pnl).toFixed(1)}`
+  ).join(' ');
+ 
+  const posArea = `${linePath} L${sx(n - 1).toFixed(1)},${zero.toFixed(1)} L${sx(0).toFixed(1)},${zero.toFixed(1)} Z`;
+ 
+  // Y ticks
+  const yTickCount = 4;
+  const yTicks = Array.from({ length: yTickCount + 1 }, (_, i) => minC + (rangeC * i) / yTickCount);
+ 
+  // X ticks: first, middle, last
+  const xTicks = [0, Math.floor(n / 2), n - 1].filter(i => i < n);
+ 
+  // Daily bar max for scale
+  const maxAbsDaily = Math.max(...dailyPnl.map(Math.abs), 0.01);
+  const barH = 28; // reserved height at bottom for daily bars
+  const barBase = H - mb + 4;
+  const barScale = (barH - 4) / maxAbsDaily;
+ 
+  const lastVal = cumPnls[cumPnls.length - 1];
+ 
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H + barH}`} style={{ display: 'block' }}>
+      <defs>
+        <clipPath id="pc-above"><rect x={ml} y={mt} width={iW} height={Math.max(0, zero - mt)} /></clipPath>
+        <clipPath id="pc-below"><rect x={ml} y={zero} width={iW} height={Math.max(0, H - mb - zero)} /></clipPath>
+        <linearGradient id="pc-grad-pos" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(46,192,122,0.35)" />
+          <stop offset="100%" stopColor="rgba(46,192,122,0.02)" />
+        </linearGradient>
+        <linearGradient id="pc-grad-neg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(232,64,64,0.02)" />
+          <stop offset="100%" stopColor="rgba(232,64,64,0.35)" />
+        </linearGradient>
+      </defs>
+ 
+      {/* Y grid + labels */}
+      {yTicks.map((v, i) => (
+        <g key={i}>
+          <line x1={ml} y1={sy(v)} x2={W - mr} y2={sy(v)}
+            stroke="var(--border)" strokeWidth={0.5} strokeDasharray={v === 0 ? 'none' : '3,3'} />
+          <text x={ml - 4} y={sy(v) + 3.5} textAnchor="end" fontSize={8}
+            fill={v === 0 ? 'var(--text-mid)' : 'var(--text-dim)'} fontFamily="IBM Plex Mono">
+            {v >= 0 ? `+$${v.toFixed(0)}` : `-$${Math.abs(v).toFixed(0)}`}
+          </text>
+        </g>
+      ))}
+ 
+      {/* Zero line */}
+      <line x1={ml} y1={zero} x2={W - mr} y2={zero}
+        stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+ 
+      {/* Area fills */}
+      <path d={posArea} fill="url(#pc-grad-pos)" clipPath="url(#pc-above)" />
+      <path d={posArea} fill="url(#pc-grad-neg)" clipPath="url(#pc-below)" />
+ 
+      {/* Line */}
+      <path d={linePath} fill="none"
+        stroke={lastVal >= 0 ? 'var(--green)' : 'var(--red)'} strokeWidth={1.8} />
+ 
+      {/* End dot */}
+      <circle cx={sx(n - 1)} cy={sy(lastVal)} r={3}
+        fill={lastVal >= 0 ? 'var(--green)' : 'var(--red)'}
+        stroke="var(--bg1)" strokeWidth={1.5} />
+ 
+      {/* Axes */}
+      <line x1={ml} y1={mt} x2={ml} y2={H - mb} stroke="var(--border2)" strokeWidth={1} />
+      <line x1={ml} y1={H - mb} x2={W - mr} y2={H - mb} stroke="var(--border2)" strokeWidth={1} />
+ 
+      {/* X labels */}
+      {xTicks.map(i => (
+        <text key={i} x={sx(i)} y={H - mb + 11} textAnchor="middle" fontSize={8}
+          fill="var(--text-dim)" fontFamily="IBM Plex Mono">
+          {days[i]?.date?.slice(5)}
+        </text>
+      ))}
+ 
+      {/* Daily P&L bars */}
+      {days.map((d, i) => {
+        const bh = Math.max(1, Math.abs(d.daily_pnl) * barScale);
+        const bw = Math.max(1, iW / n - 1);
+        const bx = sx(i) - bw / 2;
+        const by = d.daily_pnl >= 0 ? barBase - bh : barBase;
+        return (
+          <rect key={i} x={bx} y={by} width={bw} height={bh}
+            fill={d.daily_pnl >= 0 ? 'rgba(46,192,122,0.6)' : 'rgba(232,64,64,0.6)'}
+            rx={0.5}
+          />
+        );
+      })}
+      <text x={ml - 4} y={barBase - barH / 2 + 3} textAnchor="end" fontSize={7}
+        fill="var(--text-dim)" fontFamily="IBM Plex Mono">daily</text>
+    </svg>
+  );
+}
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+// Station performance horizontal bar chart
+// ─────────────────────────────────────────────────────────────────────────────
+function StationPerfBars({ stations }) {
+  if (!stations?.length) return (
+    <div className="empty-state" style={{ padding: 20 }}>No settled bets by station yet.</div>
+  );
+ 
+  const maxAbs = Math.max(...stations.map(s => Math.abs(s.pnl)), 0.01);
+ 
+  return (
+    <div style={{ padding: '8px 0' }}>
+      {stations.map(s => {
+        const pct = (Math.abs(s.pnl) / maxAbs * 100).toFixed(1);
+        const wr  = s.n_total > 0 ? (s.n_won / s.n_total * 100).toFixed(0) : '—';
+        const pos = s.pnl >= 0;
+        return (
+          <div key={s.station_id} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-bright)', width: 44 }}>
+                {s.station_id}
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--text-dim)', flex: 1, textAlign: 'center' }}>
+                {wr}% ({s.n_won}/{s.n_total})
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: pos ? 'var(--green)' : 'var(--red)', width: 56, textAlign: 'right' }}>
+                {pos ? '+' : ''}{s.pnl.toFixed(2)}
+              </span>
+            </div>
+            <div style={{ height: 5, background: 'var(--bg3)', borderRadius: 1, overflow: 'hidden' }}>
+              <div style={{
+                width: `${pct}%`, height: '100%',
+                background: pos ? 'var(--green)' : 'var(--red)',
+                borderRadius: 1, transition: 'width 0.4s',
+              }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline health card
+// ─────────────────────────────────────────────────────────────────────────────
+function PipelineHealthCard({ label, data, metric, metricLabel }) {
+  if (!data) {
+    return (
+      <div style={{
+        padding: '14px 16px', background: 'var(--bg1)',
+        border: '1px solid var(--border)', borderLeft: '3px solid var(--muted)',
+        borderRadius: 3,
+      }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>No run recorded</div>
+      </div>
+    );
+  }
+ 
+  const statusColor = data.status === 'OK' ? 'var(--green)'
+    : data.status === 'PARTIAL' ? 'var(--amber)'
+    : 'var(--red)';
+  const borderColor = data.status === 'OK' ? 'var(--green)'
+    : data.status === 'PARTIAL' ? 'var(--amber)'
+    : 'var(--red)';
+ 
+  // Age
+  const age = data.started ? (() => {
+    const diff = (Date.now() - new Date(data.started)) / 1000;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${(diff / 3600).toFixed(1)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  })() : '—';
+ 
+  return (
+    <div style={{
+      padding: '14px 16px', background: 'var(--bg1)',
+      border: '1px solid var(--border)', borderLeft: `3px solid ${borderColor}`,
+      borderRadius: 3,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+        <span style={{ fontSize: 10, fontWeight: 700, color: statusColor, textTransform: 'uppercase' }}>
+          {data.status || '—'}
+        </span>
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-bright)', marginBottom: 4 }}>
+        {metric != null ? metric : '—'}
+      </div>
+      <div style={{ fontSize: 9, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{metricLabel}</div>
+      <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>Last run: <span style={{ color: 'var(--text)' }}>{age}</span></div>
+      {data.error_msg && (
+        <div style={{
+          marginTop: 8, padding: '4px 8px', fontSize: 9, color: 'var(--red)',
+          background: 'var(--red-dim)', borderRadius: 2, lineHeight: 1.4,
+        }}>
+          {data.error_msg}
+        </div>
+      )}
+    </div>
+  );
+}
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+// Gate flags display (colored dots)
+// ─────────────────────────────────────────────────────────────────────────────
+function GateDots({ flags }) {
+  if (!flags) return <span style={{ color: 'var(--text-dim)', fontSize: 9 }}>—</span>;
+  const gates = ['edge', 'spread', 'skill', 'lead', 'reserved'];
+  return (
+    <div style={{ display: 'flex', gap: 3 }}>
+      {gates.map(g => (
+        <div key={g} title={`${g}: ${flags[g] ? 'pass' : 'fail'}`}
+          style={{
+            width: 7, height: 7, borderRadius: '50%',
+            background: flags[g] ? 'var(--green)' : 'var(--red)',
+            flexShrink: 0,
+          }} />
+      ))}
+    </div>
+  );
+}
+ 
+// ─────────────────────────────────────────────────────────────────────────────
+// Main PaperTab component
+// ─────────────────────────────────────────────────────────────────────────────
+function PaperTab() {
+  const [equity,    setEquity]    = useState(null);
+  const [positions, setPositions] = useState([]);
+  const [bets,      setBets]      = useState([]);
+  const [bestBets,  setBestBets]  = useState(null);
+  const [stats,     setStats]     = useState(null);
+  const [loading,   setLoading]   = useState(true);
+ 
+  useEffect(() => {
+    let cancelled = false;
+    const go = async () => {
+      try {
+        const [eq, pos, bt, bb, st] = await Promise.allSettled([
+          fetch('/api/paper-equity').then(r => r.ok ? r.json() : null),
+          fetch('/api/paper-positions').then(r => r.ok ? r.json() : []),
+          fetch('/api/paper-bets').then(r => r.ok ? r.json() : []),
+          fetch('/api/paper-best-bets').then(r => r.ok ? r.json() : null),
+          fetch('/api/paper-stats').then(r => r.ok ? r.json() : null),
+        ]);
+        if (cancelled) return;
+        setEquity(eq.status   === 'fulfilled' ? eq.value   : null);
+        setPositions(pos.status === 'fulfilled' ? pos.value ?? [] : []);
+        setBets(bt.status === 'fulfilled' ? bt.value ?? [] : []);
+        setBestBets(bb.status === 'fulfilled' ? bb.value : null);
+        setStats(st.status  === 'fulfilled' ? st.value  : null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    go();
+    return () => { cancelled = true; };
+  }, []);
+ 
+  // ── Derive system functioning status ──────────────────────────────────────
+  const systemStatus = (() => {
+    if (loading || !stats) return { level: 'loading', label: 'Checking…', color: 'var(--text-dim)' };
+    const p = stats.pipeline || {};
+    const mo = p['market_open'];
+    const nt = p['night'];
+    const ov = stats.overall || {};
+    const shadow = stats.shadow || {};
+ 
+    const issues = [];
+    if (!mo) issues.push('market-open pipeline has never run');
+    else if (mo.status !== 'OK') issues.push(`market-open last run: ${mo.status}`);
+    if (!nt) issues.push('night pipeline has never run');
+    else if (nt.status !== 'OK') issues.push(`night pipeline last run: ${nt.status}`);
+    if (shadow.n_priced === 0) issues.push('shadow book is empty — no pricing data');
+    if (ov.n_settled === 0 && ov.n_open === 0) issues.push('no paper positions created yet');
+ 
+    // Check staleness (last run > 30h ago)
+    if (mo?.started) {
+      const h = (Date.now() - new Date(mo.started)) / 3_600_000;
+      if (h > 30) issues.push(`market-open last ran ${h.toFixed(0)}h ago (expected daily)`);
+    }
+ 
+    if (issues.length === 0) return { level: 'ok', label: 'SYSTEM FUNCTIONING', color: 'var(--green)', issues: [] };
+    if (issues.length <= 2)  return { level: 'warn', label: 'PARTIALLY FUNCTIONING', color: 'var(--amber)', issues };
+    return { level: 'error', label: 'NOT FUNCTIONING', color: 'var(--red)', issues };
+  })();
+ 
+  const ov = stats?.overall || {};
+  const br = stats?.brier   || {};
+  const winRate = ov.n_settled > 0 ? ov.n_won / ov.n_settled : null;
+  const days = equity?.days || [];
+ 
+  // ── Layout ────────────────────────────────────────────────────────────────
+  return (
+    <div className="section fadein">
+ 
+      {/* ── Status banner ───────────────────────────────────────────────── */}
+      <div style={{
+        marginBottom: 16, padding: '12px 16px',
+        background: loading ? 'var(--bg1)' : `${systemStatus.color}14`,
+        border: `1px solid ${loading ? 'var(--border)' : systemStatus.color}50`,
+        borderLeft: `4px solid ${loading ? 'var(--muted)' : systemStatus.color}`,
+        borderRadius: 3, display: 'flex', alignItems: 'flex-start', gap: 12,
+      }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: '50%', marginTop: 2, flexShrink: 0,
+          background: loading ? 'var(--muted)' : systemStatus.color,
+          boxShadow: loading ? 'none' : `0 0 8px ${systemStatus.color}`,
+          animation: systemStatus.level === 'ok' ? 'pulse 2s ease-in-out infinite' : 'none',
+        }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: loading ? 'var(--text-dim)' : systemStatus.color, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: systemStatus.issues?.length ? 6 : 0 }}>
+            Paper Trading — {systemStatus.label}
+          </div>
+          {systemStatus.issues?.map((issue, i) => (
+            <div key={i} style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+              · {issue}
+            </div>
+          ))}
+          {systemStatus.level === 'ok' && (
+            <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 2 }}>
+              All pipelines running · Shadow book priced · Positions settling normally
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 9, color: 'var(--text-dim)', flexShrink: 0 }}>
+          {equity?.n_open != null ? `${equity.n_open} open` : `${ov.n_open || 0} open`}
+          &nbsp;·&nbsp;
+          {ov.trading_days || 0} trading days
+        </div>
+      </div>
+ 
+      {/* ── KPI stat grid ───────────────────────────────────────────────── */}
+      <div className="stat-grid" style={{ marginBottom: 16 }}>
+        <div className="stat-box">
+          <div className="stat-label">Cumulative P&L</div>
+          <div className={`stat-val ${(ov.cumulative_pnl || 0) >= 0 ? 'green' : 'red'}`}>
+            {(ov.cumulative_pnl || 0) >= 0 ? '+' : ''}{(ov.cumulative_pnl || 0).toFixed(2)}
+          </div>
+          <div className="stat-sub">on $1,000 paper bankroll</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">Win Rate</div>
+          <div className="stat-val" style={{ color: winRate != null ? (winRate >= 0.55 ? 'var(--green)' : 'var(--amber)') : 'var(--text-dim)' }}>
+            {winRate != null ? `${(winRate * 100).toFixed(1)}%` : '—'}
+          </div>
+          <div className="stat-sub">{ov.n_won || 0}W / {ov.n_lost || 0}L of {ov.n_settled || 0} settled</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">Avg Brier Score</div>
+          <div className="stat-val" style={{ color: br.avg_brier != null ? (br.avg_brier < 0.1 ? 'var(--green)' : 'var(--amber)') : 'var(--text-dim)' }}>
+            {br.avg_brier != null ? br.avg_brier.toFixed(4) : '—'}
+          </div>
+          <div className="stat-sub">{br.n_scored || 0} bets graded · BSS {br.bss != null ? br.bss.toFixed(3) : '—'}</div>
+        </div>
+        <div className="stat-box">
+          <div className="stat-label">Open Positions</div>
+          <div className="stat-val amber">{ov.n_open || 0}</div>
+          <div className="stat-sub">{ov.n_settled || 0} settled total</div>
+        </div>
+      </div>
+ 
+      {/* ── Equity chart ────────────────────────────────────────────────── */}
+      <div className="section-header">
+        <span className="section-title">Equity Curve</span>
+        <span className="section-sub">{days.length} days · daily P&L bars below</span>
+      </div>
+      <div className="card" style={{ marginBottom: 16, padding: '12px' }}>
+        <PaperEquityChart days={days} />
+      </div>
+ 
+      {/* ── Pipeline health ─────────────────────────────────────────────── */}
+      <div className="section-header" style={{ marginTop: 8 }}>
+        <span className="section-title">Pipeline Health</span>
+        <span className="section-sub">Shadow book: {stats?.shadow?.n_priced?.toLocaleString() || 0} bins priced across {stats?.shadow?.n_dates || 0} dates</span>
+      </div>
+      <div className="grid-3" style={{ marginBottom: 16 }}>
+        <PipelineHealthCard
+          label="Morning Collection"
+          data={stats?.pipeline?.['morning']}
+          metric={stats?.pipeline?.['morning']?.rows_daily?.toLocaleString() ?? '—'}
+          metricLabel="forecast rows"
+        />
+        <PipelineHealthCard
+          label="Market Open · Pricing"
+          data={stats?.pipeline?.['market_open']}
+          metric={ov.n_open != null ? `${ov.n_open + ov.n_settled} positions` : '—'}
+          metricLabel="paper positions created"
+        />
+        <PipelineHealthCard
+          label="Night Pipeline · Settle"
+          data={stats?.pipeline?.['night']}
+          metric={ov.n_settled ?? '—'}
+          metricLabel="positions settled"
+        />
+      </div>
+ 
+      {/* ── Open positions + station performance ────────────────────────── */}
+      <div className="grid-2" style={{ marginBottom: 16 }}>
+        <div>
+          <div className="section-header">
+            <span className="section-title">Open Paper Positions</span>
+            <span className="section-sub">{positions.length} active</span>
+          </div>
+          <div className="card" style={{ maxHeight: 320, overflow: 'auto' }}>
+            {positions.length === 0 ? (
+              <div className="empty-state">No open paper positions.</div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr><th>Station</th><th>Date</th><th>Type</th><th>Bin</th><th>Entry</th><th>Qty</th><th>Model P</th><th>Edge</th></tr>
+                </thead>
+                <tbody>
+                  {positions.map((p, i) => {
+                    const edge = p.current_p_win != null && p.entry_price != null
+                      ? ((p.current_p_win - p.entry_price) * 100).toFixed(1)
+                      : null;
+                    const edgePos = edge != null && Number(edge) >= 0;
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{p.station_id}</td>
+                        <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>{p.target_date?.slice(5)}</td>
+                        <td><span className={`tag ${(p.target_type || '').toLowerCase()}`}>{p.target_type}</span></td>
+                        <td style={{ color: 'var(--cyan)', fontSize: 10 }}>
+                          {p.bin_lower != null ? p.bin_lower.toFixed(0) : '—'}–{p.bin_upper != null ? p.bin_upper.toFixed(0) : '—'}°F
+                        </td>
+                        <td style={{ color: 'var(--amber)' }}>{p.entry_price?.toFixed(2) ?? '—'}</td>
+                        <td>{p.contracts}</td>
+                        <td style={{ color: 'var(--text-dim)' }}>
+                          {p.current_p_win != null ? `${(p.current_p_win * 100).toFixed(1)}%` : '—'}
+                        </td>
+                        <td style={{ color: edgePos ? 'var(--green)' : 'var(--red)', fontWeight: 600, fontSize: 10 }}>
+                          {edge != null ? `${edgePos ? '+' : ''}${edge}¢` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+ 
+        <div>
+          <div className="section-header">
+            <span className="section-title">Station P&L Breakdown</span>
+            <span className="section-sub">settled bets only</span>
+          </div>
+          <div className="card" style={{ padding: '12px 14px', maxHeight: 320, overflow: 'auto' }}>
+            <StationPerfBars stations={stats?.stations || []} />
+          </div>
+        </div>
+      </div>
+ 
+      {/* ── Best bets pipeline ──────────────────────────────────────────── */}
+      <div className="section-header">
+        <span className="section-title">Best Bets Pipeline — Last Run</span>
+        {bestBets?.run && (
+          <span className="section-sub">
+            {bestBets.run.total_selected} selected / {bestBets.run.total_evaluated} evaluated
+            &nbsp;·&nbsp;
+            {bestBets.run.total_ibe_veto} IBE veto
+            &nbsp;·&nbsp;
+            <span style={{ color: bestBets.run.status === 'OK' ? 'var(--green)' : 'var(--amber)' }}>
+              {bestBets.run.status}
+            </span>
+          </span>
+        )}
+      </div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        {!bestBets?.bets?.length ? (
+          <div className="empty-state">
+            <div className="icon">⚙️</div>
+            No BEST_BETS found for the last run.
+            <div style={{ fontSize: 10, marginTop: 6, color: 'var(--text-dim)' }}>
+              In paper mode, BEST_BETS require orderbook snapshots (c_market). These are only
+              populated in live mode or if market prices were manually loaded.
+            </div>
+          </div>
+        ) : (
+          <div style={{ maxHeight: 360, overflow: 'auto' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Station</th><th>Date</th><th>Type</th><th>Bin</th>
+                  <th>P(win)</th><th>Price</th><th>EV</th>
+                  <th>Gates</th><th>IBE</th><th>f*</th><th>Selected</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bestBets.bets.map((b, i) => (
+                  <tr key={i} style={{ opacity: b.selected ? 1 : 0.55 }}>
+                    <td style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{b.station_id}</td>
+                    <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>{b.target_date?.slice(5)}</td>
+                    <td><span className={`tag ${(b.target_type || '').toLowerCase()}`}>{b.target_type}</span></td>
+                    <td style={{ color: 'var(--cyan)', fontSize: 10 }}>
+                      {b.bin_lower?.toFixed(0)}–{b.bin_upper?.toFixed(0)}°F
+                    </td>
+                    <td style={{ color: 'var(--amber)' }}>
+                      {b.p_win != null ? `${(b.p_win * 100).toFixed(1)}%` : '—'}
+                    </td>
+                    <td style={{ color: 'var(--text-dim)' }}>
+                      {b.contract_price?.toFixed(2) ?? '—'}
+                    </td>
+                    <td style={{ color: b.ev_net > 0 ? 'var(--green)' : 'var(--red)', fontSize: 10 }}>
+                      {b.ev_net != null ? `${b.ev_net > 0 ? '+' : ''}${b.ev_net.toFixed(1)}¢` : '—'}
+                    </td>
+                    <td><GateDots flags={b.gate_flags} /></td>
+                    <td style={{ color: b.ibe_veto ? 'var(--red)' : 'var(--text-dim)', fontSize: 10 }}>
+                      {b.ibe_composite?.toFixed(2) ?? '—'}
+                      {b.ibe_veto && <span style={{ marginLeft: 3, color: 'var(--red)' }}>✗</span>}
+                    </td>
+                    <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+                      {b.f_final?.toFixed(4) ?? b.f_star?.toFixed(4) ?? '—'}
+                    </td>
+                    <td>
+                      {b.selected
+                        ? <span className="tag ok">YES</span>
+                        : <span style={{ color: 'var(--text-dim)', fontSize: 9 }}>no</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+ 
+      {/* ── Settled bets ────────────────────────────────────────────────── */}
+      <div className="section-header">
+        <span className="section-title">Settled Paper Bets</span>
+        <span className="section-sub">{bets.length} records (most recent first)</span>
+      </div>
+      <div className="card">
+        {bets.length === 0 ? (
+          <div className="empty-state">
+            <div className="icon">🎲</div>
+            No settled bets yet. Positions settle when the night pipeline runs after the target date passes.
+          </div>
+        ) : (
+          <div style={{ maxHeight: 420, overflow: 'auto' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Station</th><th>Date</th><th>Type</th><th>Bin</th>
+                  <th>Entry</th><th>Qty</th><th>Outcome</th>
+                  <th>Net P&L</th><th>Model P</th><th>Brier</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bets.map((b, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{b.station_id}</td>
+                    <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>{b.target_date?.slice(5)}</td>
+                    <td><span className={`tag ${(b.target_type || '').toLowerCase()}`}>{b.target_type}</span></td>
+                    <td style={{ color: 'var(--cyan)', fontSize: 10 }}>
+                      {b.bin_lower?.toFixed(0)}–{b.bin_upper?.toFixed(0)}°F
+                    </td>
+                    <td style={{ color: 'var(--amber)' }}>{b.entry_price?.toFixed(2) ?? '—'}</td>
+                    <td>{b.contracts}</td>
+                    <td>
+                      <span style={{
+                        padding: '1px 8px', borderRadius: 2, fontSize: 10, fontWeight: 700,
+                        background: b.outcome === 1 ? 'var(--green-dim)' : 'var(--red-dim)',
+                        color: b.outcome === 1 ? 'var(--green)' : 'var(--red)',
+                      }}>
+                        {b.outcome === 1 ? 'WIN' : b.outcome === 0 ? 'LOSS' : '—'}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600, color: (b.pnl_net || 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {b.pnl_net != null ? `${b.pnl_net >= 0 ? '+' : ''}${b.pnl_net.toFixed(2)}` : '—'}
+                    </td>
+                    <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+                      {b.p_win_at_grading != null ? `${(b.p_win_at_grading * 100).toFixed(1)}%` : '—'}
+                    </td>
+                    <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>
+                      {b.brier_score?.toFixed(4) ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+ 
+    </div>
+  );
+}
+
 // ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data, loading, refresh } = useData();
@@ -2608,6 +3222,7 @@ export default function Dashboard() {
           {tab==='overview'  && <OverviewTab  data={data} liveBalance={liveBalance} onToggleTrading={toggleTrading}/>}
           {tab==='positions' && <PositionsTab data={data} onOpenModal={openModal}/>}
           {tab==='bets'      && <BetsTab      data={data}/>}
+          {tab==='paper'     && <PaperTab     data={data}/>}
           {tab==='alerts'    && <AlertsTab    data={data} onResolve={resolveAlert}/>}
           {tab==='params'    && <ParamsTab    data={data}/>}
           {tab==='bss'       && <BSSTab       data={data}/>}
