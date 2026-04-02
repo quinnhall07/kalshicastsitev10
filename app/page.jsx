@@ -1923,6 +1923,7 @@ function StatusTooltip({ day, service, mouseX, mouseY }) {
   const health   = day.health[service.healthKey];
   const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
   const barColor = HEALTH_COLORS[health];
+  const isNearTop = mouseY < 220;
  
   const fmtDate = (iso) => {
     if (!iso) return '—';
@@ -1945,8 +1946,8 @@ function StatusTooltip({ day, service, mouseX, mouseY }) {
       style={{
         position:    'fixed',
         left:        safeX,
-        top:         mouseY - 8,
-        transform:   'translateY(-100%)',
+        top:       isNearTop ? mouseY + 16 : mouseY - 8,
+        transform: isNearTop ? 'none' : 'translateY(-100%)',
         zIndex:      2000,
         width:       TW,
         background:  'var(--bg2)',
@@ -2098,6 +2099,7 @@ function StatusServiceRow({ service, days, onBarEnter, onBarLeave }) {
                 transition: 'filter 0.08s',
               }}
               onMouseEnter={day ? (e) => onBarEnter(e, day, service) : undefined}
+              onMouseMove={day ? (e) => onBarEnter(e, day, service) : undefined}
               onMouseLeave={day ? onBarLeave : undefined}
             />
           );

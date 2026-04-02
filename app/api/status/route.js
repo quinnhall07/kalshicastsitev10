@@ -36,10 +36,12 @@ function scoreDay(d) {
     return 'failed';
   };
  
+
   const statusToHealth = (status) => {
-    if (!status)           return 'no_data';
-    if (status === 'OK')   return 'healthy';
-    if (status === 'PARTIAL') return 'degraded';
+    if (!status)              return 'no_data';
+    if (status === 'OK')      return 'healthy';
+    if (status === 'PARTIAL') return 'degraded';  // was falling through to 'failed'
+    if (status === 'OFFLINE') return 'degraded';  // treat OFFLINE as degraded not failed
     return 'failed';
   };
  
@@ -125,10 +127,10 @@ export async function GET() {
         GROUP BY TRUNC(CREATED_AT)
       ),
       shadow_agg AS (
-        SELECT TRUNC(CREATED_AT) AS day_date, COUNT(*) AS row_count
+        SELECT TARGET_DATE AS day_date, COUNT(*) AS row_count
         FROM SHADOW_BOOK
-        WHERE CREATED_AT >= TRUNC(SYSDATE) - 90
-        GROUP BY TRUNC(CREATED_AT)
+        WHERE TARGET_DATE >= TRUNC(SYSDATE) - 90
+        GROUP BY TARGET_DATE
       ),
       obs_agg AS (
         SELECT
