@@ -2522,7 +2522,7 @@ export default function Dashboard() {
                       // TODO: Add your settings modal logic here later
                       console.log("Settings clicked"); 
                     }}>
-                      ⚙
+                      Customize
                     </button>
                     <button className="dropdown-item" onClick={handleLogout} style={{ color: 'var(--red)' }}>
                       Logout
