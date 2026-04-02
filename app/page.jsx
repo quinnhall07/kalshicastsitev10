@@ -2439,7 +2439,7 @@ export default function Dashboard() {
   // 2. Cleaned up loading screen (removed duplicate modal)
   if (loading || !data) return (
     <>
-      <style>{css}</style>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="shell">
         <div className="loading-screen">
           <div style={{ display: 'flex', gap: 8 }}>
@@ -2487,7 +2487,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <style>{css}</style>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="shell">
 
         {/* TOP BAR */}
