@@ -1945,7 +1945,7 @@ function StatusTooltip({ day, service, barRect }) {
       style={{
         position:    'fixed',
         left:        safeX,
-        top: barRect.top - 12,
+        top: barRect.top - 40,
         transform: 'translateY(-100%)',
         zIndex:      2000,
         width:       TW,

@@ -132,15 +132,15 @@ export async function GET() {
         WHERE TARGET_DATE >= TRUNC(SYSDATE) - 90
         GROUP BY TARGET_DATE
       ),
-      obs_agg AS (
+    obs_agg AS (
         SELECT
-          TRUNC(INGESTED_AT) AS day_date,
-          COUNT(*)                                             AS row_count,
-          COUNT(CASE WHEN AMENDED = 1 THEN 1 END)             AS amendment_count
+            TARGET_DATE                                          AS day_date,
+            COUNT(DISTINCT STATION_ID)                           AS row_count,
+            COUNT(CASE WHEN AMENDED = 1 THEN 1 END)             AS amendment_count
         FROM OBSERVATIONS
-        WHERE INGESTED_AT >= TRUNC(SYSDATE) - 90
-        GROUP BY TRUNC(INGESTED_AT)
-      ),
+        WHERE TARGET_DATE >= TRUNC(SYSDATE) - 90
+        GROUP BY TARGET_DATE
+    ),
       brier_agg AS (
         SELECT TRUNC(GRADED_AT) AS day_date, COUNT(*) AS row_count
         FROM BRIER_SCORES
