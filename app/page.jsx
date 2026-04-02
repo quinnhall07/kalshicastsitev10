@@ -1929,6 +1929,7 @@ function StatusTooltip({ day, service, mouseX, mouseY }) {
     Math.max(centerX - TW / 2, 8),
     (typeof window !== 'undefined' ? window.innerWidth : 1200) - TW - 8
   );
+  const TW = 270;
  
   const fmtDate = (iso) => {
     if (!iso) return '—';
@@ -1938,13 +1939,6 @@ function StatusTooltip({ day, service, mouseX, mouseY }) {
       day: 'numeric', month: 'short', year: 'numeric',
     });
   };
- 
-  // Keep tooltip inside viewport
-  const TW = 270;
-  const safeX = Math.min(
-    Math.max(mouseX - TW / 2, 8),
-    (typeof window !== 'undefined' ? window.innerWidth : 1200) - TW - 8
-  );
  
   return (
     <div
