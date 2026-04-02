@@ -21,6 +21,8 @@ export async function GET() {
     
     let systemData = {
       trading_halted: false, 
+      trading_offline: false,
+      offline_reason: 'Algorithmic Stop',
       db_connected: true, 
       last_checked: new Date().toISOString(),
       bankroll: 0, portfolio_value: 0, daily_pnl: 0, cumulative_pnl: 0,
@@ -60,10 +62,6 @@ export async function GET() {
       `SELECT param_key, param_value FROM params 
        WHERE param_key IN ('system.trading_halted', 'system.trading_offline', 'system.offline_reason')`
     );
-    
-    // Set defaults for the new parameters
-    systemData.trading_offline = false;
-    systemData.offline_reason = 'Algorithmic Stop';
 
     if (paramResult.rows && paramResult.rows.length > 0) {
       for (const pRow of paramResult.rows) {
@@ -78,5 +76,12 @@ export async function GET() {
     }
 
     return NextResponse.json(systemData);
+  } catch (error) {
+    console.error("Oracle DB Error in /api/system:", error);
+    return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
+  } finally {
+    if (connection) {
+      try { await connection.close(); } catch (e) { console.error(e); }
+    }
   }
 }
