@@ -1830,6 +1830,7 @@ const STATUS_SERVICES = [
     desc: 'FORECASTS_DAILY · 9 sources · 20 stations',
     healthKey: 'collection',
     expectedRows: 720,
+    rowsField: 'forecast_rows',
     getDetails: (d) => ({
       summary:  d.morning_status ? `Pipeline: ${d.morning_status}` : 'No run recorded',
       rows:     `${d.forecast_rows.toLocaleString()} / 720 forecast rows`,
@@ -1844,6 +1845,7 @@ const STATUS_SERVICES = [
     desc: 'CLI OBSERVATIONS · KALMAN · BSS MATRIX',
     healthKey: 'pipeline_night',
     expectedRows: 20,
+    rowsField: 'obs_rows', 
     getDetails: (d) => ({
       summary: d.night_status ? `Pipeline: ${d.night_status}` : 'No run recorded',
       rows:    `${d.obs_rows} / 20 station observations`,
@@ -1858,6 +1860,7 @@ const STATUS_SERVICES = [
     desc: 'L3 PRICING · Skew-Normal · METAR truncation',
     healthKey: 'pricing',
     expectedRows: 600,
+    rowsField: 'shadow_rows', 
     getDetails: (d) => ({
       summary: d.market_status ? `Market Open: ${d.market_status}` : 'No run recorded',
       rows:    `${d.shadow_rows.toLocaleString()} / 600 priced bins`,
@@ -1945,7 +1948,7 @@ function StatusTooltip({ day, service, barRect }) {
       style={{
         position:    'fixed',
         left:        safeX,
-        top: barRect.top - 40,
+        top: barRect.top + 40,
         transform: 'translateY(-100%)',
         zIndex:      2000,
         width:       TW,
@@ -1984,17 +1987,14 @@ function StatusTooltip({ day, service, barRect }) {
       {details.rows && (
         <div style={{ fontSize: 9, color: 'var(--text-dim)', marginBottom: 2 }}>
           {details.rows}
-          {service.expectedRows && (
+          {service.expectedRows && service.rowsField && (
             <span style={{
               marginLeft: 6,
-              color: day[service.healthKey === 'collection' ? 'forecast_rows' : 'shadow_rows'] / service.expectedRows >= 0.85
+              color: day[service.rowsField] / service.expectedRows >= 0.85
                 ? 'var(--green)' : 'var(--amber)',
               fontSize: 9,
             }}>
-              ({((
-                (service.healthKey === 'collection' ? day.forecast_rows : day.shadow_rows)
-                / service.expectedRows
-              ) * 100).toFixed(0)}%)
+              ({((day[service.rowsField] / service.expectedRows) * 100).toFixed(0)}%)
             </span>
           )}
         </div>
