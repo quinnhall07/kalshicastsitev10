@@ -74,9 +74,18 @@ const css = `
   .btn-halt.active { background:var(--red); color:#fff; box-shadow:0 0 12px rgba(232,64,64,0.5); }
   .btn-halt.active:hover { background:#ff5555; }
   .btn-halt.halted { background:var(--green); color:#000; box-shadow:0 0 12px rgba(46,192,122,0.5); }
+  
   /* TOPBAR BUTTONS */
   .btn-topbar { padding:4px 10px; border-radius:2px; font-family:var(--font-mono); font-size:10px; font-weight:600; cursor:pointer; border:1px solid var(--border2); background:transparent; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em; transition:all 0.15s; display:flex; align-items:center; gap:6px; }
   .btn-topbar:hover { background:var(--bg2); color:var(--text-bright); border-color:var(--text-dim); }
+
+  /* DROPDOWN MENU */
+  .dropdown-wrap { position: relative; display: inline-block; }
+  .dropdown-menu { position: absolute; top: 100%; right: 0; margin-top: 8px; background: var(--bg1); border: 1px solid var(--border2); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,0.8); z-index: 100; min-width: 130px; display: flex; flex-direction: column; overflow: hidden; animation: fadeIn 0.1s ease; }
+  .dropdown-item { padding: 10px 14px; font-family: var(--font-mono); font-size: 10px; color: var(--text-bright); background: transparent; border: none; border-bottom: 1px solid var(--border); text-align: left; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em; transition: background 0.15s, color 0.15s; display: flex; align-items: center; gap: 8px; }
+  .dropdown-item:last-child { border-bottom: none; }
+  .dropdown-item:hover { background: var(--bg2); color: var(--amber); }
+  .dropdown-overlay { position: fixed; inset: 0; z-index: 99; cursor: default; }
 
   /* TABS */
   .tabs { display:flex; align-items:flex-end; background:var(--bg1); border-bottom:1px solid var(--border); flex-shrink:0; height:36px; }
@@ -2321,7 +2330,7 @@ export default function Dashboard() {
   const [tab,setTab]=useState('overview');
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
-
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [liveBalance, setLiveBalance] = useState(null);
   
   const handleLogout = async () => {
@@ -2491,28 +2500,43 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="topbar-right">
-            {/* NEW BUTTONS */}
-            <button className="btn-topbar" style={{fontSize: 16, border: 'none'}}>⚙</button>
-            <button className="btn-topbar" onClick={handleLogout}>Logout</button>
+            {/* SETTINGS DROPDOWN */}
+            <div className="dropdown-wrap">
+              <button 
+                className="btn-topbar" 
+                style={{ fontSize: 16, border: 'none', background: settingsOpen ? 'var(--bg2)' : 'transparent' }}
+                onClick={() => setSettingsOpen(!settingsOpen)}
+              >
+                ⚙
+              </button>
+              
+              {settingsOpen && (
+                <>
+                  {/* Invisible overlay to close menu when clicking outside */}
+                  <div className="dropdown-overlay" onClick={() => setSettingsOpen(false)} />
+                  
+                  {/* The actual menu */}
+                  <div className="dropdown-menu">
+                    <button className="dropdown-item" style={{fontSize: 18, border: 'none'}}onClick={() => {
+                      setSettingsOpen(false);
+                      // TODO: Add your settings modal logic here later
+                      console.log("Settings clicked"); 
+                    }}>
+                      ⚙
+                    </button>
+                    <button className="dropdown-item" onClick={handleLogout} style={{ color: 'var(--red)' }}>
+                      Logout
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
 
             {s.paper_mode !== undefined && (
               <div className={`status-badge ${s.paper_mode ? 'paper' : 'live-mode'}`}>
                 {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
               </div>
             )}
-            <div className={`status-badge ${systemStatus}`}>
-              <div className={`status-dot ${systemStatus}`}/>
-              {systemLabel}
-            </div>
-            {/* 3. Uses toggleTrading now */}
-            <button
-              className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
-              onClick={toggleTrading}
-              disabled={halting}
-            >
-              {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
-            </button>
-          </div>
         </div>
 
         {/* TABS */}
