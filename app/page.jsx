@@ -406,8 +406,9 @@ function useData() {
       ['/api/bets',           'recent_bets'],
       ['/api/alerts',         'alerts'],
       ['/api/params',         'params'],
-      // We removed gh-actions from here because the Python backend script 
-      // is now handling it directly through the database!
+      ['/api/bss',            'bss_matrix'],
+      ['/api/stations',       'stations'],
+      ['/api/kalman-states',  'kalman_states'],
     ];
 
     try {
@@ -475,17 +476,29 @@ function useData() {
 // Generic per-resource fetch hook — no mock fallback
 function useApiFetch(url) {
   const [state, setState] = useState({ loading: Boolean(url), data: null, error: null });
-
-  fetch(url)
-      .then(r => { 
+ 
+  useEffect(() => {
+    if (!url) {
+      setState({ loading: false, data: null, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState({ loading: true, data: null, error: null });
+    fetch(url)
+      .then(r => {
         if (r.redirected && r.url.includes('/login')) {
           window.location.href = '/login';
           throw new Error('Authentication expired');
         }
-        if (!r.ok) throw new Error(`HTTP ${r.status}`); 
-        return r.json(); 
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
       })
-
+      .then(data  => { if (!cancelled) setState({ loading: false, data, error: null }); })
+      .catch(err  => { if (!cancelled) setState({ loading: false, data: null, error: err.message }); });
+ 
+    return () => { cancelled = true; };
+  }, [url]);
+ 
   return state;
 }
 
