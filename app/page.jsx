@@ -2517,7 +2517,7 @@ export default function Dashboard() {
                   
                   {/* The actual menu */}
                   <div className="dropdown-menu">
-                    <button className="dropdown-item" style={{fontSize: 18, border: 'none'}}onClick={() => {
+                    <button className="dropdown-item" onClick={() => {
                       setSettingsOpen(false);
                       // TODO: Add your settings modal logic here later
                       console.log("Settings clicked"); 
@@ -2537,6 +2537,18 @@ export default function Dashboard() {
                 {s.paper_mode ? '📄 PAPER' : '🔴 LIVE'}
               </div>
             )}
+            <div className={`status-badge ${systemStatus}`}>
+              <div className={`status-dot ${systemStatus}`}/>
+              {systemLabel}
+            </div>
+            {/* 3. Uses toggleTrading now */}
+            <button
+              className={`btn-halt ${s.trading_halted ? 'halted' : 'active'}`}
+              onClick={toggleTrading}
+              disabled={halting}
+            >
+              {halting ? '…' : s.trading_halted ? '▶ Resume' : '⏹ Halt'}
+            </button>
           </div>
         </div>
 
