@@ -1817,7 +1817,7 @@ function ModelsTab({ data }) {
   );
 }
 
-// CLOCK
+// CLOCKS
 function UTCClock() {
   const [now, setNow] = useState(null);
   
@@ -1827,8 +1827,28 @@ function UTCClock() {
     return () => clearInterval(t);
   }, []);
 
-  if (!now) return <span>--:--:--</span>;
-  return <span>{now.toISOString().slice(11, 19)}</span>;
+  if (!now) return <span>--- --:--:--</span>;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayName = days[now.getUTCDay()];
+  return <span>{dayName} {now.toISOString().slice(11, 19)}</span>;
+}
+
+function LocalClock() {
+  const [now, setNow] = useState(null);
+  
+  useEffect(() => {
+    setNow(new Date()); 
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!now) return <span>--- --:--:--</span>;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayName = days[now.getDay()];
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  return <span>{dayName} {hh}:{mm}:{ss}</span>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3370,6 +3390,12 @@ export default function Dashboard() {
             <div className="tmet">
               <div className="tmet-label">Open Pos.</div>
               <div className="tmet-val">{(data.open_positions||[]).length}</div>
+            </div>
+            <div className="tmet">
+              <div className="tmet-label">LOCAL</div>
+              <div className="tmet-val" style={{fontSize:11}}>
+                <LocalClock />
+              </div>
             </div>
             <div className="tmet">
               <div className="tmet-label">UTC</div>
