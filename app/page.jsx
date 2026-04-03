@@ -370,8 +370,6 @@ const TABS = [
 
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
 
-// ─── HOOKS ────────────────────────────────────────────────────────────────────
-
 const EMPTY_STATE = {
   system: {
     trading_halted: false,
@@ -1668,7 +1666,6 @@ function StationsTab({ data }) {
 }
 
 // ─── TAB: MODELS ─────────────────────────────────────────────────────────────
-// ─── TAB: MODELS ─────────────────────────────────────────────────────────────
 function ModelsTab({ data }) {
   // Derive station list from live stations data
   const stationIds = (data.stations || []).map(s => s.id);
@@ -1816,527 +1813,6 @@ function ModelsTab({ data }) {
           </div>
         );
       })()}
-    </div>
-  );
-}
-
-// ─── STATUS TAB ──────────────────────────────────────────────────────
-const HEALTH_COLORS = {
-  healthy: '#2ec07a',
-  degraded: '#f5a623',
-  failed:   '#e84040',
-  no_data:  'rgba(255,255,255,0.05)',
-};
- 
-const HEALTH_LABELS = {
-  healthy: { icon: '✓', label: 'Healthy',  color: '#2ec07a' },
-  degraded: { icon: '⚠', label: 'Degraded', color: '#f5a623' },
-  failed:   { icon: '✗', label: 'Failed',   color: '#e84040' },
-  no_data:  { icon: '—', label: 'No Data',  color: '#3a4055' },
-};
- 
-// Each service row: what health key to read, and how to build tooltip details
-const STATUS_SERVICES = [
-  {
-    id: 'collection',
-    label: 'Morning Collection',
-    desc: 'FORECASTS_DAILY · 9 sources · 20 stations',
-    healthKey: 'collection',
-    expectedRows: 720,
-    rowsField: 'forecast_rows',
-    getDetails: (d) => ({
-      summary:  d.morning_status ? `Pipeline: ${d.morning_status}` : 'No run recorded',
-      rows:     `${d.forecast_rows.toLocaleString()} / 720 forecast rows`,
-      extra:    d.stations_fail > 0 ? `${d.stations_fail} source(s) failed` : null,
-      extra2:   d.stations_ok   > 0 ? `${d.stations_ok} source(s) OK` : null,
-      error:    d.morning_error,
-    }),
-  },
-  {
-    id: 'night',
-    label: 'Night Pipeline',
-    desc: 'CLI OBSERVATIONS · KALMAN · BSS MATRIX',
-    healthKey: 'pipeline_night',
-    expectedRows: 20,
-    rowsField: 'obs_rows', 
-    getDetails: (d) => ({
-      summary: d.night_status ? `Pipeline: ${d.night_status}` : 'No run recorded',
-      rows:    `${d.obs_rows} / 20 station observations`,
-      extra:   d.amendments > 0 ? `${d.amendments} CLI amendment(s) applied` : null,
-      extra2:  null,
-      error:   d.night_error,
-    }),
-  },
-  {
-    id: 'pricing',
-    label: 'Shadow Book',
-    desc: 'L3 PRICING · Skew-Normal · METAR truncation',
-    healthKey: 'pricing',
-    expectedRows: 600,
-    rowsField: 'shadow_rows', 
-    getDetails: (d) => ({
-      summary: d.market_status ? `Market Open: ${d.market_status}` : 'No run recorded',
-      rows:    `${d.shadow_rows.toLocaleString()} / 600 priced bins`,
-      extra:   null,
-      extra2:  null,
-      error:   d.market_error,
-    }),
-  },
-  {
-    id: 'metar',
-    label: 'METAR Coverage',
-    desc: 'INTRADAY OBSERVATIONS · Aviation Weather Center',
-    healthKey: 'metar',
-    expectedRows: null,
-    getDetails: (d) => ({
-      summary: `${d.metar_stations} / 20 stations with intraday data`,
-      rows:    null,
-      extra:   d.metar_stations < 20 ? `${20 - d.metar_stations} station(s) missing METAR` : null,
-      extra2:  null,
-      error:   null,
-    }),
-  },
-  {
-    id: 'evaluation',
-    label: 'Brier Grading',
-    desc: 'L5 EVALUATION · BRIER_SCORES · BSS matrix',
-    healthKey: 'evaluation',
-    expectedRows: null,
-    getDetails: (d) => ({
-      summary: d.brier_rows > 0
-        ? `${d.brier_rows} score(s) graded`
-        : d.night_status === 'OK' ? 'Night pipeline ran — no scores yet' : 'No grading recorded',
-      rows:    null,
-      extra:   null,
-      extra2:  null,
-      error:   null,
-    }),
-  },
-  {
-    id: 'alerts',
-    label: 'System Alerts',
-    desc: 'CRITICAL EVENTS · SYSTEM_ALERTS table',
-    healthKey: 'alerts',
-    expectedRows: null,
-    getDetails: (d) => ({
-      summary: d.critical_alerts > 0
-        ? `${d.critical_alerts} CRITICAL alert(s)`
-        : d.total_alerts > 0
-          ? `${d.total_alerts} alert(s) — none critical`
-          : 'No alerts recorded',
-      rows:    null,
-      extra:   d.alert_types || null,
-      extra2:  null,
-      error:   null,
-    }),
-  },
-];
-
-// ─── TOOLTIP ──────────────────────────────────────────────────────────────────
- 
-function StatusTooltip({ day, service, barRect }) {
-  if (!barRect || !day || !service) return null;
-  const details  = service.getDetails(day);
-  const health   = day.health[service.healthKey];
-  const hlMeta   = HEALTH_LABELS[health] || HEALTH_LABELS.no_data;
-  const barColor = HEALTH_COLORS[health];
-  const centerX = barRect.left + barRect.width / 2;
-  const TW = 270;
-  const safeX = Math.min(
-    Math.max(centerX - TW / 2, 8),
-    (typeof window !== 'undefined' ? window.innerWidth : 1200) - TW - 8
-  );
- 
-  const fmtDate = (iso) => {
-    if (!iso) return '—';
-    // Use noon UTC to avoid date-rollover from timezone offsets
-    const d = new Date(`${iso}T12:00:00Z`);
-    return d.toLocaleDateString('en-US', {
-      day: 'numeric', month: 'short', year: 'numeric',
-    });
-  };
- 
-  return (
-    <div
-      style={{
-        position:    'fixed',
-        left:        safeX,
-        top: barRect.top + 40,
-        transform: 'translateY(-100%)',
-        zIndex:      2000,
-        width:       TW,
-        background:  'var(--bg2)',
-        border:      '1px solid var(--border2)',
-        borderTop:   `2px solid ${barColor}`,
-        borderRadius: 3,
-        padding:     '10px 14px',
-        boxShadow:   '0 12px 32px rgba(0,0,0,0.7)',
-        pointerEvents: 'none',
-        fontFamily:  'var(--font-mono)',
-      }}
-    >
-      {/* Date */}
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-bright)', marginBottom: 5 }}>
-        {fmtDate(day.date)}
-      </div>
- 
-      {/* Health badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
-        <div style={{
-          padding: '1px 7px', borderRadius: 2, fontSize: 9, fontWeight: 700,
-          background: `${barColor}20`, color: barColor,
-          border: `1px solid ${barColor}50`, textTransform: 'uppercase', letterSpacing: '0.08em',
-        }}>
-          {hlMeta.icon} {hlMeta.label}
-        </div>
-      </div>
- 
-      {/* Summary */}
-      <div style={{ fontSize: 10, color: 'var(--text)', marginBottom: details.rows ? 3 : 0 }}>
-        {details.summary}
-      </div>
- 
-      {/* Row counts vs expected */}
-      {details.rows && (
-        <div style={{ fontSize: 9, color: 'var(--text-dim)', marginBottom: 2 }}>
-          {details.rows}
-          {service.expectedRows && service.rowsField && (
-            <span style={{
-              marginLeft: 6,
-              color: day[service.rowsField] / service.expectedRows >= 0.85
-                ? 'var(--green)' : 'var(--amber)',
-              fontSize: 9,
-            }}>
-              ({((day[service.rowsField] / service.expectedRows) * 100).toFixed(0)}%)
-            </span>
-          )}
-        </div>
-      )}
- 
-      {/* Extra info */}
-      {details.extra && (
-        <div style={{ fontSize: 9, color: 'var(--amber)', marginTop: 3 }}>
-          {details.extra}
-        </div>
-      )}
-      {details.extra2 && (
-        <div style={{ fontSize: 9, color: 'var(--green)', marginTop: 2 }}>
-          {details.extra2}
-        </div>
-      )}
- 
-      {/* Error box */}
-      {details.error && (
-        <div style={{
-          marginTop: 7, padding: '5px 8px',
-          background: 'rgba(232,64,64,0.08)', border: '1px solid rgba(232,64,64,0.2)',
-          borderRadius: 2, fontSize: 9, color: 'var(--red)', lineHeight: 1.5,
-          wordBreak: 'break-word',
-        }}>
-          {details.error}
-        </div>
-      )}
- 
-      {/* RELATED block (mimics Anthropic style) */}
-      {(details.extra || details.error) && (
-        <div style={{
-          marginTop: 8, paddingTop: 7,
-          borderTop: '1px solid var(--border)',
-          fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-        }}>
-          Related
-        </div>
-      )}
-    </div>
-  );
-}
- 
-// ─── SINGLE SERVICE ROW ───────────────────────────────────────────────────────
- 
-function StatusServiceRow({ service, days, onBarEnter, onBarLeave }) {
-  // Overall status: based on last 7 days
-  const recentDays = (days || []).slice(-7);
-  const hasFailure  = recentDays.some(d => d.health[service.healthKey] === 'failed');
-  const hasDegraded = recentDays.some(d => d.health[service.healthKey] === 'degraded');
-  const overallStatus = hasFailure
-    ? { label: 'Degraded Performance', color: 'var(--red)' }
-    : hasDegraded
-      ? { label: 'Degraded Performance', color: 'var(--amber)' }
-      : { label: 'Operational', color: 'var(--green)' };
- 
-  // Uptime % across non-no_data days
-  const activeDays   = (days || []).filter(d => d.health[service.healthKey] !== 'no_data');
-  const healthyDays  = activeDays.filter(d => d.health[service.healthKey] === 'healthy').length;
-  const uptimePct    = activeDays.length > 0
-    ? (healthyDays / activeDays.length * 100).toFixed(2)
-    : null;
- 
-  return (
-    <div style={{ marginBottom: 28 }}>
-      {/* Label row */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        marginBottom: 6,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-bright)' }}>
-            {service.label}
-          </span>
-          <span style={{
-            fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-          }}>
-            {service.desc}
-          </span>
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 600, color: overallStatus.color, flexShrink: 0, marginLeft: 16 }}>
-          {overallStatus.label}
-        </span>
-      </div>
- 
-      {/* Bar chart */}
-      <div style={{
-        display: 'flex', gap: 1, height: 30, borderRadius: 2, overflow: 'hidden',
-      }}>
-        {(days || Array(90).fill(null)).map((day, i) => {
-          const health = day ? day.health[service.healthKey] : 'no_data';
-          return (
-            <div
-              key={day?.date || i}
-              style={{
-                flex: 1, minWidth: 0,
-                background: HEALTH_COLORS[health] || HEALTH_COLORS.no_data,
-                cursor: day ? 'default' : 'default',
-                transition: 'filter 0.08s',
-              }}
-              onMouseEnter={day ? (e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                onBarEnter({ top: r.top, left: r.left, width: r.width }, day, service);
-              } : undefined}
-              onMouseLeave={day ? onBarLeave : undefined}
-            />
-          );
-        })}
-      </div>
- 
-      {/* Timeline labels */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        marginTop: 4, alignItems: 'center',
-      }}>
-        <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>90 days ago</span>
-        {uptimePct !== null && (
-          <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>
-            {uptimePct}% uptime
-          </span>
-        )}
-        <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>Today</span>
-      </div>
-    </div>
-  );
-}
- 
-// ─── MAIN TAB COMPONENT ───────────────────────────────────────────────────────
- 
-function StatusTab() {
-  const [days,    setDays]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [tooltip, setTooltip] = useState(null); // { day, service, mouseX, mouseY }
- 
-  useEffect(() => {
-    fetch('/api/status')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(d  => { setDays(Array.isArray(d) ? d : []); setLoading(false); })
-      .catch(e => { setError(e.message); setLoading(false); });
-  }, []);
- 
-  const handleBarEnter = (barRect, day, service) => {
-    setTooltip({ day, service, barRect });
-  };
- 
-  const handleBarLeave = () => setTooltip(null);
- 
-  // Summary stats across all services for the header banner
-  const recentDays = (days || []).slice(-1); // just today
-  const overallHealthy = recentDays.length > 0 && STATUS_SERVICES.every(
-    s => recentDays[0].health[s.healthKey] === 'healthy'
-  );
- 
-  return (
-    <div className="section fadein" style={{ maxWidth: 1100 }}>
- 
-      {/* Page header */}
-      <div className="section-header">
-        <span className="section-title">System Status — 90 Day History</span>
-        <span className="section-sub">Per-table health · expected vs actual rows</span>
-      </div>
- 
-      {/* Overall status banner */}
-      {!loading && !error && days && (
-        <div style={{
-          marginBottom: 24, padding: '10px 16px',
-          background:  overallHealthy ? 'rgba(46,192,122,0.06)' : 'rgba(245,166,35,0.06)',
-          border:      `1px solid ${overallHealthy ? 'rgba(46,192,122,0.25)' : 'rgba(245,166,35,0.25)'}`,
-          borderLeft:  `3px solid ${overallHealthy ? 'var(--green)' : 'var(--amber)'}`,
-          borderRadius: 3,
-          display:     'flex', alignItems: 'center', gap: 10,
-        }}>
-          <div style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: overallHealthy ? 'var(--green)' : 'var(--amber)',
-            boxShadow:  `0 0 6px ${overallHealthy ? 'var(--green)' : 'var(--amber)'}`,
-            flexShrink: 0, animation: 'pulse 2s ease-in-out infinite',
-          }}/>
-          <span style={{ fontSize: 11, fontWeight: 600, color: overallHealthy ? 'var(--green)' : 'var(--amber)' }}>
-            {overallHealthy ? 'All systems operational' : 'Some systems degraded — hover bars for details'}
-          </span>
-          {days.length > 0 && (
-            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-dim)' }}>
-              Earliest record:{' '}
-              {days.find(d => d.forecast_rows > 0 || d.shadow_rows > 0 || d.obs_rows > 0)?.date || '—'}
-            </span>
-          )}
-        </div>
-      )}
- 
-      {/* Loading state */}
-      {loading && (
-        <div style={{ padding: '40px 0', textAlign: 'center' }}>
-          {[0,1,2].map(i => (
-            <div key={i} className="loading-dot" style={{
-              display: 'inline-block', margin: '0 4px',
-              animationDelay: `${i * 0.2}s`,
-            }}/>
-          ))}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 10, letterSpacing: '0.1em' }}>
-            Querying 90-day health history…
-          </div>
-        </div>
-      )}
- 
-      {/* Error state */}
-      {!loading && error && (
-        <div style={{
-          padding: '16px', background: 'var(--red-dim)',
-          border: '1px solid rgba(232,64,64,0.3)', borderRadius: 3,
-          fontSize: 10, color: 'var(--red)',
-        }}>
-          Failed to load status data: {error}
-        </div>
-      )}
- 
-      {/* Service rows */}
-      {!loading && !error && days && (
-        <>
-          <div style={{ marginBottom: 8 }}>
-            {STATUS_SERVICES.map(service => (
-              <StatusServiceRow
-                key={service.id}
-                service={service}
-                days={days}
-                onBarEnter={handleBarEnter}
-                onBarLeave={handleBarLeave}
-              />
-            ))}
-          </div>
- 
-          {/* Legend */}
-          <div style={{
-            display: 'flex', gap: 20, alignItems: 'center',
-            paddingTop: 12, borderTop: '1px solid var(--border)',
-            flexWrap: 'wrap',
-          }}>
-            <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              Legend:
-            </span>
-            {Object.entries(HEALTH_LABELS).map(([key, meta]) => (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{
-                  width: 14, height: 14, borderRadius: 2,
-                  background: HEALTH_COLORS[key],
-                  border: key === 'no_data' ? '1px solid var(--border2)' : 'none',
-                }}/>
-                <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{meta.label}</span>
-              </div>
-            ))}
-            <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-dim)' }}>
-              Hover any bar for details
-            </span>
-          </div>
- 
-          {/* Raw counts table (last 7 days) — useful for debugging */}
-          <details style={{ marginTop: 20 }}>
-            <summary style={{
-              fontSize: 9, color: 'var(--text-dim)', cursor: 'pointer',
-              textTransform: 'uppercase', letterSpacing: '0.1em',
-              padding: '6px 0', borderTop: '1px solid var(--border)', userSelect: 'none',
-            }}>
-              Raw counts — last 7 days
-            </summary>
-            <div style={{ marginTop: 8, overflowX: 'auto' }}>
-              <table className="data-table" style={{ minWidth: 700 }}>
-                <thead>
-                  <tr>
-                    {['Date','Forecast Rows','Shadow Rows','Obs Rows','Brier Rows','METAR Stns','Alerts (crit)','Morning','Night','Market'].map(h => (
-                      <th key={h}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {days.slice(-7).reverse().map(d => (
-                    <tr key={d.date}>
-                      <td style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{d.date}</td>
-                      <td style={{ color: d.forecast_rows >= 600 ? 'var(--green)' : 'var(--amber)' }}>
-                        {d.forecast_rows.toLocaleString()}
-                      </td>
-                      <td style={{ color: d.shadow_rows >= 500 ? 'var(--green)' : d.shadow_rows > 0 ? 'var(--amber)' : 'var(--text-dim)' }}>
-                        {d.shadow_rows.toLocaleString()}
-                      </td>
-                      <td style={{ color: d.obs_rows >= 18 ? 'var(--green)' : d.obs_rows > 0 ? 'var(--amber)' : 'var(--text-dim)' }}>
-                        {d.obs_rows}
-                        {d.amendments > 0 && <span style={{ color: 'var(--amber)', marginLeft: 4 }}>+{d.amendments}△</span>}
-                      </td>
-                      <td style={{ color: d.brier_rows > 0 ? 'var(--green)' : 'var(--text-dim)' }}>
-                        {d.brier_rows}
-                      </td>
-                      <td style={{ color: d.metar_stations >= 18 ? 'var(--green)' : d.metar_stations > 0 ? 'var(--amber)' : 'var(--text-dim)' }}>
-                        {d.metar_stations}
-                      </td>
-                      <td>
-                        {d.total_alerts > 0
-                          ? <span style={{ color: d.critical_alerts > 0 ? 'var(--red)' : 'var(--amber)' }}>
-                              {d.total_alerts} ({d.critical_alerts})
-                            </span>
-                          : <span style={{ color: 'var(--text-dim)' }}>—</span>
-                        }
-                      </td>
-                      {[d.morning_status, d.night_status, d.market_status].map((s, i) => (
-                        <td key={i}>
-                          {s
-                            ? <span className={`tag ${s.toLowerCase()}`}>{s}</span>
-                            : <span style={{ color: 'var(--text-dim)' }}>—</span>
-                          }
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </>
-      )}
- 
-      {/* Tooltip rendered last so it floats above everything */}
-      {tooltip && tooltip.barRect && (
-        <StatusTooltip
-          day={tooltip.day}
-          service={tooltip.service}
-          barRect={tooltip.barRect}
-        />
-      )}
     </div>
   );
 }
@@ -2601,7 +2077,765 @@ function GateDots({ flags }) {
     </div>
   );
 }
+
+// ─── Color constants ──────────────────────────────────────────────────────────
+const SC = {
+  healthy:  '#2ec07a',
+  degraded: '#f5a623',
+  outage:   '#e84040',
+  no_data:  'rgba(30,34,48,0.9)',
+};
  
+const SC_LABEL = {
+  healthy:  'Operational',
+  degraded: 'Degraded',
+  outage:   'Outage',
+  no_data:  'No Data',
+};
+ 
+// Normalise raw /api/status health strings to our 4-state vocabulary
+function norm(h) {
+  if (h === 'healthy')  return 'healthy';
+  if (h === 'degraded') return 'degraded';
+  if (h === 'failed')   return 'outage';
+  return 'no_data';
+}
+ 
+// ─── Service groups — mapped to actual Oracle tables ─────────────────────────
+//
+// healthKey  → key inside day.health from /api/status
+// getMetrics → derives what to show in the tooltip for that service/day pair
+const SVC_GROUPS = [
+  {
+    id: 'ingestion',
+    label: 'Data Ingestion',
+    subtitle: 'External data collected from weather APIs and aviation systems',
+    services: [
+      {
+        id: 'forecast_collection',
+        label: 'Forecast Collection',
+        table: 'FORECASTS_DAILY',
+        desc: '9 models × 20 stations × up to 4 days → ~720 rows / morning run',
+        healthKey: 'collection',
+        expected: 720,
+        getMetrics(day) {
+          const pct = day.forecast_rows / 720 * 100;
+          return {
+            primary: `${day.forecast_rows.toLocaleString()} / 720 forecast rows`,
+            pct,
+            badge: day.morning_status,
+            lines: [
+              day.stations_ok   > 0 ? `${day.stations_ok} source(s) succeeded`  : null,
+              day.stations_fail > 0 ? `${day.stations_fail} source(s) failed`    : null,
+              day.morning_error     ? `Error: ${day.morning_error.slice(0, 100)}` : null,
+            ].filter(Boolean),
+          };
+        },
+      },
+      {
+        id: 'metar',
+        label: 'METAR Intraday Observations',
+        table: 'METAR_DAILY_MAX',
+        desc: 'Aviation Weather Center → per-station T_OBS_MAX/MIN, used for L3 truncation',
+        healthKey: 'metar',
+        expected: 20,
+        getMetrics(day) {
+          return {
+            primary: `${day.metar_stations} / 20 stations with intraday data`,
+            pct: day.metar_stations / 20 * 100,
+            badge: null,
+            lines: [
+              day.metar_stations === 20
+                ? 'Full station coverage'
+                : day.metar_stations > 0
+                  ? `${20 - day.metar_stations} station(s) missing`
+                  : 'No METAR data recorded',
+            ],
+          };
+        },
+      },
+    ],
+  },
+ 
+  {
+    id: 'processing',
+    label: 'Processing & Pricing Engine',
+    subtitle: 'Kalman filtering, ensemble weighting, and skew-normal Shadow Book generation',
+    services: [
+      {
+        id: 'night_processing',
+        label: 'Night Processing Pipeline',
+        table: 'KALMAN_STATES · OBSERVATIONS · BSS_MATRIX',
+        desc: 'Step 3–12 of night.py: CLI obs → Kalman update → BSS refresh → financials',
+        healthKey: 'pipeline_night',
+        expected: 20,
+        getMetrics(day) {
+          return {
+            primary: `${day.obs_rows} / 20 station observations ingested`,
+            pct: day.obs_rows / 20 * 100,
+            badge: day.night_status,
+            lines: [
+              day.amendments > 0
+                ? `${day.amendments} CLI amendment(s) applied and replayed via Kalman`
+                : null,
+              day.night_error ? `Error: ${day.night_error.slice(0, 100)}` : null,
+            ].filter(Boolean),
+          };
+        },
+      },
+      {
+        id: 'shadow_book',
+        label: 'Shadow Book Pricing',
+        table: 'SHADOW_BOOK',
+        desc: 'market_open.py steps 6–7: ensemble → skew-normal → P(win) per bin · ~600 rows/day',
+        healthKey: 'pricing',
+        expected: 600,
+        getMetrics(day) {
+          const pct = day.shadow_rows / 600 * 100;
+          return {
+            primary: `${day.shadow_rows.toLocaleString()} / 600 bins priced`,
+            pct,
+            badge: day.market_status,
+            lines: [
+              day.shadow_rows > 0
+                ? `20 stations × 2 types × 15 bins`
+                : 'No Shadow Book entries',
+              day.market_error ? `Error: ${day.market_error.slice(0, 100)}` : null,
+            ].filter(Boolean),
+          };
+        },
+      },
+    ],
+  },
+ 
+  {
+    id: 'evaluation',
+    label: 'Evaluation Layer',
+    subtitle: 'Forecast accuracy grading, skill qualification, and system health monitoring',
+    services: [
+      {
+        id: 'brier_grading',
+        label: 'Brier Score Grading',
+        table: 'BRIER_SCORES',
+        desc: 'night.py step 9: P(win) vs OBSERVATIONS → BS = (p − outcome)² per ticker',
+        healthKey: 'evaluation',
+        expected: null,
+        getMetrics(day) {
+          return {
+            primary: day.brier_rows > 0
+              ? `${day.brier_rows} prediction(s) graded`
+              : 'No Brier scores recorded',
+            pct: null,
+            badge: null,
+            lines: [
+              day.brier_rows > 0
+                ? 'Graded against CLI daily observations'
+                : day.night_status === 'OK'
+                  ? 'Night pipeline ran — scores pending observation data'
+                  : null,
+            ].filter(Boolean),
+          };
+        },
+      },
+      {
+        id: 'alert_health',
+        label: 'System Alert Health',
+        table: 'SYSTEM_ALERTS',
+        desc: 'Critical event severity scoring · unresolved alert tracking · health gate',
+        healthKey: 'alerts',
+        expected: null,
+        getMetrics(day) {
+          return {
+            primary: day.critical_alerts > 0
+              ? `${day.critical_alerts} critical alert(s)`
+              : day.total_alerts > 0
+                ? `${day.total_alerts} alert(s), none critical`
+                : 'No alerts recorded',
+            pct: null,
+            badge: null,
+            lines: [
+              day.alert_types ? day.alert_types.slice(0, 120) : null,
+            ].filter(Boolean),
+          };
+        },
+      },
+    ],
+  },
+];
+ 
+// ─── Uptime helper ────────────────────────────────────────────────────────────
+function uptime(days, healthKey) {
+  const active = (days || []).filter(d => norm(d.health[healthKey]) !== 'no_data');
+  if (!active.length) return null;
+  const good = active.filter(d => norm(d.health[healthKey]) === 'healthy').length;
+  return (good / active.length * 100).toFixed(2);
+}
+ 
+// ─── Overall system status ────────────────────────────────────────────────────
+function overallStatus(latestDay) {
+  if (!latestDay) return { state: 'no_data', label: 'Status Unknown' };
+  const vals = Object.values(latestDay.health || {}).map(norm);
+  if (vals.some(v => v === 'outage'))   return { state: 'outage',   label: 'Partial System Outage'       };
+  if (vals.some(v => v === 'degraded')) return { state: 'degraded', label: 'Degraded Performance'         };
+  if (vals.some(v => v === 'healthy'))  return { state: 'healthy',  label: 'All Systems Operational'     };
+  return                                       { state: 'no_data',  label: 'Awaiting First Pipeline Run' };
+}
+ 
+// ─── Tooltip — rendered INSIDE each ServiceRow so it always matches ───────────
+// NOTE: Uses position:absolute relative to a positioned ancestor, NOT fixed.
+// This avoids the viewport-clipping bug in the previous implementation where
+// a single global tooltip would lag behind after rapid mouse movement.
+function BarTooltip({ day, service, barIndex, totalBars }) {
+  if (!day) return null;
+  const statusStr = norm(day.health[service.healthKey]);
+  const color     = SC[statusStr];
+  const metrics   = service.getMetrics(day);
+ 
+  const fmtDate = iso => {
+    if (!iso) return '—';
+    return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  };
+ 
+  // Flip tooltip to the left when in the right 40% of the bar track
+  const isRight = barIndex / totalBars > 0.6;
+ 
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: 'calc(100% + 10px)',
+      [isRight ? 'right' : 'left']: 0,
+      width: 260,
+      background: '#111318',
+      border: `1px solid ${color}40`,
+      borderTop: `2px solid ${color}`,
+      borderRadius: 3,
+      padding: '10px 14px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.9)',
+      zIndex: 500,
+      pointerEvents: 'none',
+      fontFamily: 'var(--font-mono)',
+    }}>
+      {/* Date */}
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#e8eaf2', marginBottom: 6 }}>
+        {fmtDate(day.date)}
+      </div>
+ 
+      {/* Status badge */}
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '2px 7px', borderRadius: 2, marginBottom: 8,
+        background: `${color}18`, border: `1px solid ${color}40`,
+      }}>
+        <div style={{ width: 5, height: 5, borderRadius: '50%', background: color }}/>
+        <span style={{ fontSize: 9, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          {SC_LABEL[statusStr]}
+        </span>
+        {metrics.badge && (
+          <span style={{ fontSize: 9, color: '#5a6280', marginLeft: 2 }}>· {metrics.badge}</span>
+        )}
+      </div>
+ 
+      {/* Primary metric */}
+      <div style={{ fontSize: 11, color: '#b8c0d4', marginBottom: 4 }}>
+        {metrics.primary}
+        {metrics.pct != null && (
+          <span style={{
+            marginLeft: 6, fontSize: 9,
+            color: metrics.pct >= 85 ? '#2ec07a' : metrics.pct >= 40 ? '#f5a623' : '#e84040',
+          }}>
+            ({metrics.pct.toFixed(0)}%)
+          </span>
+        )}
+      </div>
+ 
+      {/* Detail lines */}
+      {metrics.lines.map((line, i) => (
+        <div key={i} style={{ fontSize: 9, color: '#5a6280', marginTop: 2, lineHeight: 1.5 }}>
+          {line}
+        </div>
+      ))}
+ 
+      {/* Table name tag */}
+      <div style={{
+        marginTop: 9, paddingTop: 7,
+        borderTop: '1px solid #1e2230',
+        fontSize: 8, color: '#3a4055',
+        textTransform: 'uppercase', letterSpacing: '0.1em',
+      }}>
+        {service.table}
+      </div>
+    </div>
+  );
+}
+ 
+// ─── Single service row ───────────────────────────────────────────────────────
+function ServiceRow({ service, days, isLast }) {
+  // LOCAL hover state — this is the critical fix. Each row tracks its own
+  // hovered bar index independently, so there is no race between rows.
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+ 
+  const todayDay    = days?.[days.length - 1];
+  const todayStatus = norm(todayDay?.health?.[service.healthKey]);
+  const color       = SC[todayStatus];
+  const pct         = uptime(days, service.healthKey);
+ 
+  return (
+    <div style={{
+      paddingBottom: 22,
+      marginBottom: isLast ? 0 : 22,
+      borderBottom: isLast ? 'none' : '1px solid #1e2230',
+    }}>
+ 
+      {/* Label row */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
+        <div>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#e8eaf2' }}>
+            {service.label}
+          </span>
+          <div style={{ fontSize: 9, color: '#5a6280', marginTop: 2, letterSpacing: '0.04em', lineHeight: 1.4 }}>
+            {service.desc}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {pct !== null && (
+            <span style={{ fontSize: 9, color: '#5a6280' }}>{pct}% uptime</span>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div style={{
+              width: 5, height: 5, borderRadius: '50%', background: color,
+              animation: todayStatus === 'healthy' ? 'pulse 2s ease-in-out infinite' : 'none',
+            }}/>
+            <span style={{ fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {SC_LABEL[todayStatus]}
+            </span>
+          </div>
+        </div>
+      </div>
+ 
+      {/* 90-day bar track */}
+      <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', gap: 1.5, height: 26 }}>
+          {(days || Array(90).fill(null)).map((day, i) => {
+            const s = day ? norm(day.health[service.healthKey]) : 'no_data';
+            return (
+              <div
+                key={day?.date || i}
+                style={{
+                  flex: 1, minWidth: 0,
+                  background: SC[s],
+                  borderRadius: 2,
+                  cursor: day ? 'default' : 'default',
+                  // Highlight hovered bar slightly
+                  filter: hoveredIdx === i ? 'brightness(1.35)' : 'none',
+                  transition: 'filter 0.08s',
+                }}
+                onMouseEnter={() => day && setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
+              />
+            );
+          })}
+        </div>
+ 
+        {/* Tooltip — absolutely positioned relative to the bar track */}
+        {hoveredIdx !== null && days?.[hoveredIdx] && (
+          <BarTooltip
+            day={days[hoveredIdx]}
+            service={service}
+            barIndex={hoveredIdx}
+            totalBars={days.length}
+          />
+        )}
+      </div>
+ 
+      {/* Timeline axis */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+        <span style={{ fontSize: 8, color: '#3a4055' }}>90 days ago</span>
+        <span style={{ fontSize: 8, color: '#3a4055' }}>Today</span>
+      </div>
+    </div>
+  );
+}
+ 
+// ─── Service group card ───────────────────────────────────────────────────────
+function ServiceGroupCard({ group, days }) {
+  const latestDay = days?.[days.length - 1];
+ 
+  // Aggregate group status from its members
+  const memberStatuses = group.services.map(s =>
+    norm(latestDay?.health?.[s.healthKey])
+  );
+  const groupState =
+    memberStatuses.some(s => s === 'outage')   ? 'outage'   :
+    memberStatuses.some(s => s === 'degraded') ? 'degraded' :
+    memberStatuses.some(s => s === 'healthy')  ? 'healthy'  : 'no_data';
+  const groupColor = SC[groupState];
+ 
+  return (
+    <div style={{
+      marginBottom: 16,
+      background: '#0b0d10',
+      border: '1px solid #1e2230',
+      borderRadius: 4,
+      overflow: 'visible', // allow tooltip to escape the card
+    }}>
+      {/* Group header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 16px',
+        background: '#111318', borderBottom: '1px solid #1e2230',
+      }}>
+        <div>
+          <div style={{
+            fontSize: 10, fontWeight: 700, color: '#b8c0d4',
+            letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 1,
+          }}>
+            {group.label}
+          </div>
+          <div style={{ fontSize: 9, color: '#4a5270' }}>{group.subtitle}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+          <div style={{
+            width: 6, height: 6, borderRadius: '50%', background: groupColor,
+            animation: groupState === 'healthy' ? 'pulse 2s ease-in-out infinite' : 'none',
+          }}/>
+          <span style={{
+            fontSize: 9, fontWeight: 600, color: groupColor,
+            textTransform: 'uppercase', letterSpacing: '0.08em',
+          }}>
+            {SC_LABEL[groupState]}
+          </span>
+        </div>
+      </div>
+ 
+      {/* Service rows */}
+      <div style={{ padding: '18px 16px 0', position: 'relative' }}>
+        {group.services.map((svc, i) => (
+          <ServiceRow
+            key={svc.id}
+            service={svc}
+            days={days}
+            isLast={i === group.services.length - 1}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+ 
+// ─── Incident feed (from SYSTEM_ALERTS) ──────────────────────────────────────
+function IncidentFeed({ alerts }) {
+  const incidents = (alerts || []).filter(a => (a.severity || 0) >= 0.5).slice(0, 12);
+ 
+  const sevMeta = s =>
+    s >= 0.8 ? ['CRITICAL', '#e84040'] :
+    s >= 0.6 ? ['HIGH',     '#f5a623'] :
+               ['MEDIUM',   '#ffd166'];
+ 
+  const fmtTs = iso => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      hour12: false, timeZone: 'UTC',
+    }) + ' UTC';
+  };
+ 
+  return (
+    <div style={{ marginTop: 24 }}>
+ 
+      {/* Section header */}
+      <div style={{
+        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+        paddingBottom: 10,
+        borderBottom: '1px solid #1e2230', marginBottom: 14,
+      }}>
+        <span style={{
+          fontSize: 10, fontWeight: 600, color: '#7a8299',
+          letterSpacing: '0.12em', textTransform: 'uppercase',
+        }}>
+          Incident History
+        </span>
+        <span style={{ fontSize: 9, color: '#3a4055' }}>
+          {incidents.length} event{incidents.length !== 1 ? 's' : ''} · severity ≥ 0.5
+        </span>
+      </div>
+ 
+      {incidents.length === 0 ? (
+        <div style={{
+          padding: '20px 0', textAlign: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 7, height: 7, borderRadius: '50%', background: '#2ec07a',
+            animation: 'pulse 2s ease-in-out infinite',
+          }}/>
+          <span style={{ fontSize: 11, color: '#5a6280' }}>
+            No incidents on record in the past 30 days.
+          </span>
+        </div>
+      ) : incidents.map((a, i) => {
+        const [sevLabel, sevColor] = sevMeta(a.severity || 0);
+        return (
+          <div key={a.id || i} style={{
+            padding: '11px 14px', marginBottom: 8,
+            background: '#0b0d10', border: '1px solid #1e2230',
+            borderLeft: `3px solid ${a.resolved ? '#1e2230' : sevColor}`,
+            borderRadius: 3,
+            opacity: a.resolved ? 0.55 : 1,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 5 }}>
+              {/* Resolved / severity badge */}
+              <span style={{
+                fontSize: 8, fontWeight: 700,
+                color: a.resolved ? '#3a4055' : sevColor,
+                padding: '1px 5px', borderRadius: 2,
+                background: a.resolved ? '#1e2230' : `${sevColor}18`,
+                border: `1px solid ${a.resolved ? '#252a38' : sevColor + '40'}`,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+              }}>
+                {a.resolved ? 'RESOLVED' : sevLabel}
+              </span>
+ 
+              {/* Alert type */}
+              <span style={{ fontSize: 10, fontWeight: 600, color: '#b8c0d4' }}>
+                {(a.type || 'SYSTEM ALERT').replace(/_/g, ' ')}
+              </span>
+ 
+              {/* Station tag */}
+              {a.station && (
+                <span style={{ fontSize: 9, color: '#5a6280' }}>· {a.station}</span>
+              )}
+ 
+              {/* Timestamp */}
+              <span style={{ marginLeft: 'auto', fontSize: 9, color: '#3a4055' }}>
+                {fmtTs(a.ts)}
+              </span>
+            </div>
+ 
+            <div style={{ fontSize: 10, color: '#5a6280', lineHeight: 1.55 }}>
+              {typeof a.detail === 'string' ? a.detail.slice(0, 220) : '—'}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+ 
+// ─── 7-day raw counts debug table ────────────────────────────────────────────
+function RawCountsTable({ days }) {
+  if (!days?.length) return null;
+  const last7 = days.slice(-7).reverse();
+  return (
+    <details style={{ marginTop: 20 }}>
+      <summary style={{
+        fontSize: 9, color: '#3a4055', cursor: 'pointer',
+        textTransform: 'uppercase', letterSpacing: '0.1em',
+        padding: '6px 0', borderTop: '1px solid #1e2230', userSelect: 'none',
+      }}>
+        Raw row counts — last 7 days
+      </summary>
+      <div style={{ marginTop: 10, overflowX: 'auto' }}>
+        <table className="data-table" style={{ minWidth: 800 }}>
+          <thead>
+            <tr>
+              {['Date','Forecast Rows','Shadow Rows','Obs Rows','Brier','METAR Stns','Alerts','Morning','Night','Market'].map(h => (
+                <th key={h}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {last7.map(d => (
+              <tr key={d.date}>
+                <td style={{ fontWeight: 600, color: '#e8eaf2' }}>{d.date}</td>
+                <td style={{ color: d.forecast_rows >= 612 ? '#2ec07a' : d.forecast_rows > 0 ? '#f5a623' : '#3a4055' }}>
+                  {d.forecast_rows.toLocaleString()}
+                  {d.forecast_rows > 0 && (
+                    <span style={{ marginLeft: 4, fontSize: 9, color: '#5a6280' }}>
+                      ({(d.forecast_rows / 720 * 100).toFixed(0)}%)
+                    </span>
+                  )}
+                </td>
+                <td style={{ color: d.shadow_rows >= 510 ? '#2ec07a' : d.shadow_rows > 0 ? '#f5a623' : '#3a4055' }}>
+                  {d.shadow_rows.toLocaleString()}
+                  {d.shadow_rows > 0 && (
+                    <span style={{ marginLeft: 4, fontSize: 9, color: '#5a6280' }}>
+                      ({(d.shadow_rows / 600 * 100).toFixed(0)}%)
+                    </span>
+                  )}
+                </td>
+                <td style={{ color: d.obs_rows >= 17 ? '#2ec07a' : d.obs_rows > 0 ? '#f5a623' : '#3a4055' }}>
+                  {d.obs_rows}
+                  {d.amendments > 0 && (
+                    <span style={{ color: '#f5a623', marginLeft: 4 }}>+{d.amendments}△</span>
+                  )}
+                </td>
+                <td style={{ color: d.brier_rows > 0 ? '#2ec07a' : '#3a4055' }}>
+                  {d.brier_rows}
+                </td>
+                <td style={{ color: d.metar_stations >= 17 ? '#2ec07a' : d.metar_stations > 0 ? '#f5a623' : '#3a4055' }}>
+                  {d.metar_stations}
+                </td>
+                <td>
+                  {d.total_alerts > 0
+                    ? <span style={{ color: d.critical_alerts > 0 ? '#e84040' : '#f5a623' }}>
+                        {d.total_alerts} ({d.critical_alerts} crit)
+                      </span>
+                    : <span style={{ color: '#3a4055' }}>—</span>
+                  }
+                </td>
+                {[d.morning_status, d.night_status, d.market_status].map((s, i) => (
+                  <td key={i}>
+                    {s
+                      ? <span className={`tag ${s.toLowerCase()}`}>{s}</span>
+                      : <span style={{ color: '#3a4055' }}>—</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+ 
+// ─── Main StatusTab ───────────────────────────────────────────────────────────
+function StatusTab({ data }) {
+  const [days,    setDays]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+ 
+  useEffect(() => {
+    fetch('/api/status')
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d  => { setDays(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, []);
+ 
+  const latestDay  = days?.[days.length - 1];
+  const overall    = overallStatus(latestDay);
+  const oColor     = SC[overall.state];
+ 
+  // Full-run days = days where at least one major pipeline ran
+  const fullRunDays  = (days || []).filter(d =>
+    d.forecast_rows > 0 || d.shadow_rows > 0 || d.obs_rows > 0
+  ).length;
+ 
+  return (
+    <div className="section fadein" style={{ maxWidth: 1100 }}>
+ 
+      {/* Page header */}
+      <div className="section-header">
+        <span className="section-title">System Status</span>
+        <span className="section-sub">
+          {days ? `${days.length}-day history · ` : ''}
+          {SVC_GROUPS.reduce((a, g) => a + g.services.length, 0)} services · 3 pipeline types
+        </span>
+      </div>
+ 
+      {/* Overall banner */}
+      {!loading && !error && (
+        <div style={{
+          marginBottom: 24, padding: '14px 20px',
+          background: `${oColor}0c`,
+          border: `1px solid ${oColor}28`,
+          borderLeft: `4px solid ${oColor}`,
+          borderRadius: 4,
+          display: 'flex', alignItems: 'center', gap: 16,
+        }}>
+          <div style={{
+            width: 11, height: 11, borderRadius: '50%', background: oColor,
+            flexShrink: 0,
+            animation: 'pulse 2s ease-in-out infinite',
+          }}/>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: oColor, letterSpacing: '0.04em' }}>
+              {overall.label}
+            </div>
+            <div style={{ fontSize: 10, color: '#5a6280', marginTop: 2 }}>
+              {days?.length
+                ? `${fullRunDays} of ${days.length} calendar days with active pipeline runs`
+                : 'Fetching historical data…'}
+            </div>
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontSize: 8, color: '#3a4055', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Last record
+            </div>
+            <div style={{ fontSize: 11, color: '#b8c0d4', marginTop: 2 }}>
+              {latestDay?.date ?? '—'}
+            </div>
+          </div>
+        </div>
+      )}
+ 
+      {/* Loading */}
+      {loading && (
+        <div style={{ padding: '48px 0', textAlign: 'center' }}>
+          {[0,1,2].map(i => (
+            <div key={i} className="loading-dot" style={{
+              display: 'inline-block', margin: '0 5px',
+              animationDelay: `${i * 0.2}s`,
+            }}/>
+          ))}
+          <div style={{ fontSize: 10, color: '#4a5270', marginTop: 14, letterSpacing: '0.1em' }}>
+            Querying 90-day health history…
+          </div>
+        </div>
+      )}
+ 
+      {/* Error */}
+      {!loading && error && (
+        <div style={{
+          padding: 16, background: 'rgba(232,64,64,0.05)',
+          border: '1px solid rgba(232,64,64,0.25)', borderRadius: 3,
+          fontSize: 10, color: '#e84040',
+        }}>
+          Failed to load status data: {error}
+        </div>
+      )}
+ 
+      {/* Service groups */}
+      {!loading && !error && days && SVC_GROUPS.map(group => (
+        <ServiceGroupCard key={group.id} group={group} days={days} />
+      ))}
+ 
+      {/* Legend */}
+      {!loading && !error && days && (
+        <div style={{
+          display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center',
+          padding: '12px 0', borderTop: '1px solid #1e2230', marginBottom: 8,
+        }}>
+          {Object.entries(SC_LABEL).map(([key, label]) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{
+                width: 12, height: 12, borderRadius: 2,
+                background: SC[key],
+                border: key === 'no_data' ? '1px solid #252a38' : 'none',
+              }}/>
+              <span style={{ fontSize: 9, color: '#5a6280' }}>{label}</span>
+            </div>
+          ))}
+          <span style={{ marginLeft: 'auto', fontSize: 9, color: '#3a4055' }}>
+            Hover any bar · tooltip flips when near right edge
+          </span>
+        </div>
+      )}
+ 
+      {/* Incident feed */}
+      {!loading && !error && <IncidentFeed alerts={data?.alerts || []} />}
+ 
+      {/* Debug table */}
+      {!loading && !error && <RawCountsTable days={days} />}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main PaperTab component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2637,7 +2871,7 @@ function PaperTab() {
     go();
     return () => { cancelled = true; };
   }, []);
- 
+
   // ── Derive system functioning status ──────────────────────────────────────
   const systemStatus = (() => {
     if (loading || !stats) return { level: 'loading', label: 'Checking…', color: 'var(--text-dim)' };
