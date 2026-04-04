@@ -292,6 +292,13 @@ const css = `
 
   /* ANIMATIONS */
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* INFO TOOLTIP */
+  .info-tip-wrap { position:relative; display:inline-flex; align-items:center; margin-left:4px; cursor:help; }
+  .info-tip-icon { display:inline-flex; align-items:center; justify-content:center; width:13px; height:13px; border-radius:50%; border:1px solid var(--text-dim); color:var(--text-dim); font-size:8px; font-weight:700; font-style:italic; line-height:1; transition:all 0.15s; flex-shrink:0; }
+  .info-tip-wrap:hover .info-tip-icon { border-color:var(--amber); color:var(--amber); }
+  .info-tip-popup { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); width:max-content; max-width:280px; padding:8px 12px; background:var(--bg2); border:1px solid var(--border2); border-radius:3px; box-shadow:0 6px 20px rgba(0,0,0,0.7); font-size:10px; font-style:normal; font-weight:400; color:var(--text); line-height:1.5; letter-spacing:0; text-transform:none; z-index:200; pointer-events:none; white-space:normal; }
+
   @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
   @keyframes slideInRight { from{transform:translateX(100%)} to{transform:translateX(0)} }
   .fadein { animation:fadeIn 0.2s ease forwards; }
@@ -338,14 +345,22 @@ const fmt = {
   dur:(sec)=>{ if(!sec) return '—'; const m=Math.floor(sec/60),s=sec%60; return `${m}m ${s}s`; },
 };
 
-function bssColor(bss) {
-  if(bss>=0.07) return "bss-cell-q";
-  if(bss>=0.03) return "bss-cell-m";
+// ─── PARAM HELPERS ───────────────────────────────────────────────────────────
+// Shared helper to read a parameter from the params array (fetched from DB)
+function getParam(params, key, def) {
+  const p = (params || []).find(x => x.key === key);
+  return p && p.value !== undefined ? Number(p.value) : def;
+}
+
+// Threshold-aware color helpers — accept optional dynamic thresholds
+function bssColor(bss, enterThresh = 0.07, exitThresh = 0.03) {
+  if(bss>=enterThresh) return "bss-cell-q";
+  if(bss>=exitThresh) return "bss-cell-m";
   if(bss>=0)    return "bss-cell-n";
   return "bss-cell-p";
 }
 function sevColor(s) { if(s>=0.8) return "var(--red)"; if(s>=0.6) return "var(--amber)"; return "var(--yellow)"; }
-function mddColor(mdd) { if(mdd>=0.20) return "var(--red)"; if(mdd>=0.10) return "var(--amber)"; return "var(--green)"; }
+function mddColor(mdd, halt = 0.20, safe = 0.10) { if(mdd>=halt) return "var(--red)"; if(mdd>=safe) return "var(--amber)"; return "var(--green)"; }
 
 function kalmanBiasStyle(bk, uk) {
   const magnitude = Math.min(Math.abs(bk)/3.0, 1.0);
@@ -358,6 +373,20 @@ function kalmanBiasStyle(bk, uk) {
     const r=Math.round(40-30*magnitude),g=Math.round(100-40*magnitude),b=Math.round(180+55*magnitude);
     return {background:`rgba(${r},${g},${b},${certainty})`,color:magnitude>0.5?'#fff':'#6baed6',text:bk.toFixed(1)};
   }
+}
+
+// ─── INFO TOOLTIP COMPONENT ──────────────────────────────────────────────────
+function InfoTip({ text }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="info-tip-wrap"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      <span className="info-tip-icon">i</span>
+      {show && <span className="info-tip-popup">{text}</span>}
+    </span>
+  );
 }
 
 // ─── TABS ─────────────────────────────────────────────────────────────────────
@@ -889,12 +918,8 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
   const params = data.params || [];
   
   // Read MDD thresholds from params (fallback to defaults if not found)
-  const getParam = (key, def) => {
-    const p = params.find(x => x.key === key);
-    return p && p.value !== undefined ? Number(p.value) : def;
-  };
-  const mddSafe = getParam('drawdown.mdd_safe', 0.10);
-  const mddHalt = getParam('drawdown.mdd_halt', 0.20);
+  const mddSafe = getParam(params, 'drawdown.mdd_safe', 0.10);
+  const mddHalt = getParam(params, 'drawdown.mdd_halt', 0.20);
   
   // Local MDD Color helper using dynamic thresholds
   const localMddColor = (mdd) => {
@@ -916,12 +941,12 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
       </div>
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <div className="stat-box">
-          <div className="stat-label">Bankroll{s.paper_mode ? ' — Paper' : ' — Live'}</div>
+          <div className="stat-label">Bankroll{s.paper_mode ? ' — Paper' : ' — Live'}<InfoTip text="Current available balance in the trading account. In paper mode, this is simulated." /></div>
           <div className="stat-val amber">${displayBankroll.toFixed(2)}</div>
           <div className="stat-sub" style={{color: s.paper_mode ? 'var(--cyan)' : 'var(--green)'}}>{s.paper_mode ? '📄 Paper mode' : '🔴 Live trading'}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-label">Portfolio Value</div>
+          <div className="stat-label">Portfolio Value<InfoTip text="Bankroll plus the value of all open positions (contracts × entry price)." /></div>
           <div className="stat-val">${displayPortfolio.toFixed(2)}</div>
           <div className="stat-sub" style={{color:s.cumulative_pnl>=0?'var(--green)':'var(--red)'}}>{fmt.usd(s.cumulative_pnl)} cumulative</div>
         </div>
@@ -943,26 +968,26 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
       </div>
       <div className="stat-grid" style={{ marginBottom: 16 }}>
         <div className="stat-box">
-          <div className="stat-label">Sharpe Ratio (30d)</div>
+          <div className="stat-label">Sharpe Ratio (30d)<InfoTip text="Rolling 30-day Sharpe ratio. Measures risk-adjusted return. Values above 1.0 are considered good." /></div>
           <div className="stat-val" style={{color: s.sharpe_rolling_30 >= 1 ? 'var(--green)' : 'var(--text-bright)'}}>
             {s.sharpe_rolling_30?.toFixed(3) || '0.000'}
           </div>
-          <div className="stat-sub">Simple SR: {s.sr_simple?.toFixed(3) || '0.000'}</div>
+          <div className="stat-sub">Dollar SR: {s.sr_dollar?.toFixed(3) || '0.000'} · Simple: {s.sr_simple?.toFixed(3) || '0.000'}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-label">CAL (Calibration)</div>
+          <div className="stat-label">CAL (Calibration)<InfoTip text="Calibration score — measures how well predicted probabilities match observed outcomes. Lower is better; ≤0.05 is well-calibrated." /></div>
           <div className="stat-val" style={{color: s.cal <= 0.05 ? 'var(--green)' : 'var(--text-bright)'}}>
             {s.cal?.toFixed(4) || '0.0000'}
           </div>
           <div className="stat-sub">Market CAL: {s.market_cal?.toFixed(4) || '—'}</div>
         </div>
         <div className="stat-box">
-          <div className="stat-label">FDR</div>
+          <div className="stat-label">FDR<InfoTip text="Fractional Drawdown Ratio — ratio of cumulative P&L to maximum drawdown. Higher is better, indicating more return per unit of drawdown risk." /></div>
           <div className="stat-val">{s.fdr?.toFixed(3) || '0.000'}</div>
           <div className="stat-sub">Fractional Drawdown Ratio</div>
         </div>
         <div className="stat-box">
-          <div className="stat-label">EUR</div>
+          <div className="stat-label">EUR<InfoTip text="Expected Utility Ratio — measures the system's expected utility relative to risk. Captures both return and risk aversion." /></div>
           <div className="stat-val">{s.eur?.toFixed(3) || '0.000'}</div>
           <div className="stat-sub">Expected Utility Ratio</div>
         </div>
@@ -970,7 +995,7 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
 
       <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-          <span style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Max Drawdown (All-Time)</span>
+          <span style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Max Drawdown (All-Time)<InfoTip text="Maximum peak-to-trough decline in portfolio value. Trading automatically halts if MDD exceeds the HALT threshold." /></span>
           <span style={{fontSize:11,color:localMddColor(s.mdd_alltime),fontWeight:600}}>{fmt.pct2(s.mdd_alltime)}</span>
         </div>
         <div className="mdd-bar-track">
@@ -997,6 +1022,33 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
           <div className="win-bar-l" style={{width:`${(1-winRate)*100}%`}}/>
         </div>
       </div>
+      {/* Paper Trading Summary (when in paper mode) */}
+      {s.paper_mode && (s.paper_n_total > 0 || s.paper_n_open > 0) && (
+        <>
+          <div className="section-header" style={{ marginTop: 8 }}>
+            <span className="section-title">Paper Trading Summary</span>
+          </div>
+          <div className="stat-grid" style={{ marginBottom: 16 }}>
+            <div className="stat-box">
+              <div className="stat-label">Paper P&L</div>
+              <div className={`stat-val ${(s.paper_cumulative_pnl||0)>=0?'green':'red'}`}>{fmt.usd(s.paper_cumulative_pnl||0)}</div>
+              <div className="stat-sub">Today: {fmt.usd(s.paper_daily_pnl||0)}</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-label">Paper Positions</div>
+              <div className="stat-val amber">{s.paper_n_open || 0} open</div>
+              <div className="stat-sub">{s.paper_n_total || 0} total settled</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-label">Paper Win Rate</div>
+              <div className="stat-val" style={{color:(s.paper_n_total||0)>0&&(s.paper_n_won||0)/(s.paper_n_total||1)>=0.55?'var(--green)':'var(--amber)'}}>
+                {(s.paper_n_total||0)>0?fmt.pct((s.paper_n_won||0)/(s.paper_n_total||1)):'—'}
+              </div>
+              <div className="stat-sub">{s.paper_n_won||0}W / {s.paper_n_lost||0}L</div>
+            </div>
+          </div>
+        </>
+      )}
       <div className="grid-2">
         {/* Left Column: Pipeline Runs */}
         <div>
@@ -1047,8 +1099,11 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
 }
 
 // ─── TAB: POSITIONS ───────────────────────────────────────────────────────────
-function PositionsTab({ data, onOpenModal }) {
+function PositionsTab({ data, onOpenModal, kalshiPositions }) {
   const positions = data.open_positions || [];
+
+  const livePositions = kalshiPositions?.positions || [];
+  const hasLive = livePositions.length > 0;
   
   // Calculate exposure summaries
   let highExposure = 0;
@@ -1062,18 +1117,25 @@ function PositionsTab({ data, onOpenModal }) {
     if ((p.target_type || '').toUpperCase() === 'LOW') lowExposure += cost;
   });
 
+  // Kalshi live exposure
+  const kalshiExposure = livePositions.reduce((a, p) => a + (p.market_exposure || 0) / 100, 0);
+
   return (
     <div className="section fadein">
-      <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{positions.length} active contracts</span></div>
-      
-      {/* Exposure Summary Added Here */}
-      <div style={{padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,display:'flex',gap:24,marginBottom:16}}>
+      <div className="section-header"><span className="section-title">Open Positions</span><span className="section-sub">{positions.length} DB · {livePositions.length} Kalshi live</span></div>
+
+      {/* Exposure Summary */}
+      <div style={{padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,display:'flex',gap:24,marginBottom:16,flexWrap:'wrap'}}>
         {[
-          {label:'Total Positions',val:positions.length},
+          {label:'DB Positions',val:positions.length},
           {label:'Total Contracts',val:positions.reduce((a,p)=>a+(p.contracts||0),0)},
-          {label:'Total At Risk',val:`$${totalExposure.toFixed(2)}`, color: 'var(--amber)'},
+          {label:'DB At Risk',val:`$${totalExposure.toFixed(2)}`, color: 'var(--amber)'},
           {label:'HIGH Exposure',val:`$${highExposure.toFixed(2)}`, color: 'var(--cyan)'},
           {label:'LOW Exposure',val:`$${lowExposure.toFixed(2)}`, color: 'var(--cyan)'},
+          ...(hasLive ? [
+            {label:'Kalshi Live Positions',val:livePositions.length, color:'var(--green)'},
+            {label:'Kalshi Exposure',val:`$${kalshiExposure.toFixed(2)}`, color:'var(--green)'},
+          ] : []),
         ].map(item=>(
           <div key={item.label}>
             <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>{item.label}</div>
@@ -1105,6 +1167,44 @@ function PositionsTab({ data, onOpenModal }) {
                     <button className="btn-sm green" onClick={()=>onOpenModal('audit',p.ticker)} title="Decision Audit">Audit</button>
                   </div>
                 </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+      
+      {/* Kalshi Live Account Positions */}
+      <div className="section-header" style={{marginTop:20}}>
+        <span className="section-title">Kalshi Account Positions</span>
+        <span className="section-sub">
+          {kalshiPositions?.source === 'kalshi_live' ? 'Live from Kalshi API' : 'Not connected'}
+          {kalshiPositions?.fetched_at && ` · ${fmt.ago(kalshiPositions.fetched_at)}`}
+        </span>
+      </div>
+      <div className="card">
+        {kalshiPositions?.error && !hasLive && (
+          <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>
+            {kalshiPositions.error === 'Kalshi API credentials not configured'
+              ? 'Kalshi API credentials not configured. Set KALSHI_KEY_ID and KALSHI_PRIVATE_KEY in environment.'
+              : `Error: ${kalshiPositions.error}`}
+          </div>
+        )}
+        {!kalshiPositions?.error && livePositions.length === 0 && (
+          <div className="empty-state">No active Kalshi positions.</div>
+        )}
+        {livePositions.length > 0 && (
+          <table className="data-table">
+            <thead><tr><th>Ticker</th><th>Contracts</th><th>Exposure</th><th>Realized P&L</th><th>Fees</th><th>Resting Orders</th></tr></thead>
+            <tbody>{livePositions.map((p,i)=>(
+              <tr key={i}>
+                <td style={{color:'var(--text-dim)',fontSize:9,maxWidth:220,overflow:'hidden',textOverflow:'ellipsis'}} title={p.ticker||''}>{p.ticker}</td>
+                <td style={{color:'var(--text-bright)',fontWeight:600}}>{p.position}</td>
+                <td style={{color:'var(--amber)'}}>${((p.market_exposure||0)/100).toFixed(2)}</td>
+                <td style={{color:(p.realized_pnl||0)>=0?'var(--green)':'var(--red)',fontWeight:500}}>
+                  {p.realized_pnl!=null?fmt.usd(p.realized_pnl):'—'}
+                </td>
+                <td style={{color:'var(--text-dim)'}}>{p.fees_paid!=null?`$${p.fees_paid.toFixed(2)}`:'—'}</td>
+                <td style={{color:'var(--text-dim)'}}>{p.resting_orders_count||0}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -1242,7 +1342,6 @@ function AlertsTab({ data, onResolve }) {
   useEffect(()=>{
     let cancelled=false;
     const fetch_ = () => {
-      // Changed to hit our new authenticated local route instead of the public GitHub API
       fetch(`/api/gh-actions`)
         .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
         .then(d=>{
@@ -1252,9 +1351,15 @@ function AlertsTab({ data, onResolve }) {
             const nm=(run.name||'unknown').toLowerCase();
             if(!byWorkflow[nm]) byWorkflow[nm]=run;
           }
-          setGhRuns(Object.values(byWorkflow).slice(0,8));
+          const runs = Object.values(byWorkflow).slice(0,8);
+          setGhRuns(runs);
           setGhError(false);
           setGhLoading(false);
+          // Log failed workflows to console
+          const failed = runs.filter(r => (r.conclusion || r.status) === 'failure');
+          if (failed.length > 0) {
+            console.warn(`[KalshiCast] ${failed.length} GitHub Actions workflow(s) FAILED:`, failed.map(r => r.name));
+          }
         })
         .catch(e=>{ if(!cancelled){setGhError(true);setGhLoading(false);} });
     };
@@ -1271,9 +1376,43 @@ function AlertsTab({ data, onResolve }) {
     return <span style={{color:'var(--text-dim)'}}>— {val}</span>;
   };
 
-  const unresolved=data.alerts.filter(a=>!a.resolved);
+  // Separate system alerts vs pipeline failure alerts
+  const allAlerts = data.alerts || [];
+  const systemAlerts = allAlerts.filter(a => a.origin !== 'pipeline_run');
+  const pipelineAlerts = allAlerts.filter(a => a.origin === 'pipeline_run');
+  const unresolved = allAlerts.filter(a => !a.resolved);
+
+  // Count failed GH Actions workflows
+  const ghFailures = (ghRuns || []).filter(r => (r.conclusion || r.status) === 'failure');
+
+  // Log unresolved alerts to console
+  useEffect(() => {
+    if (unresolved.length > 0) {
+      console.warn(`[KalshiCast] ${unresolved.length} unresolved alert(s):`, unresolved.map(a => `${a.type}: ${typeof a.detail === 'string' ? a.detail.slice(0, 80) : '—'}`));
+    }
+    if (pipelineAlerts.length > 0) {
+      console.warn(`[KalshiCast] ${pipelineAlerts.length} pipeline failure(s) in last 7 days:`, pipelineAlerts.map(a => `${a.type}: ${typeof a.detail === 'string' ? a.detail.slice(0, 80) : '—'}`));
+    }
+  }, [allAlerts.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
   return (
     <div className="section fadein">
+    {/* Active Failures Summary Banner */}
+      {(ghFailures.length > 0 || pipelineAlerts.length > 0 || unresolved.length > 0) && (
+        <div style={{
+          marginBottom:16, padding:'12px 16px',
+          background:'rgba(232,64,64,0.06)', border:'1px solid rgba(232,64,64,0.2)',
+          borderLeft:'4px solid var(--red)', borderRadius:3,
+        }}>
+          <div style={{fontSize:10,fontWeight:700,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:6}}>Active Issues</div>
+          <div style={{display:'flex',gap:16,fontSize:10,color:'var(--text)'}}>
+            {ghFailures.length > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{ghFailures.length}</span> GH Actions failed</span>}
+            {pipelineAlerts.length > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{pipelineAlerts.length}</span> pipeline failure(s)</span>}
+            {unresolved.filter(a => a.origin !== 'pipeline_run').length > 0 && <span><span style={{color:'var(--amber)',fontWeight:700}}>{unresolved.filter(a => a.origin !== 'pipeline_run').length}</span> unresolved system alert(s)</span>}
+          </div>
+        </div>
+      )}
       <div className="section-header">
         <span className="section-title">Pipeline Schedule — GitHub Actions</span>
         {GH_REPO && <a href={`https://github.com/${GH_REPO}/actions`} target="_blank" rel="noreferrer" style={{fontSize:9,color:'var(--cyan)',marginLeft:'auto',textDecoration:'none'}}>{GH_REPO} ↗</a>}
@@ -1283,7 +1422,7 @@ function AlertsTab({ data, onResolve }) {
         {!ghLoading && ghError && !GH_REPO && <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>Set <code style={{color:'var(--amber)'}}>NEXT_PUBLIC_GH_REPO</code> in .env.local to enable GitHub Actions status.</div>}
         {!ghLoading && ghError && GH_REPO && <div style={{padding:'12px 16px',fontSize:10,color:'var(--text-dim)'}}>GitHub Actions unavailable (rate limit or auth error). <a href={`https://github.com/${GH_REPO}/actions`} target="_blank" rel="noreferrer" style={{color:'var(--cyan)'}}>View on GitHub ↗</a></div>}
         {!ghLoading && ghRuns && ghRuns.map((run,i)=>(
-          <div key={i} className="gh-row">
+          <div key={i} className="gh-row" style={(run.conclusion||run.status)==='failure'?{background:'rgba(232,64,64,0.06)',borderLeft:'3px solid var(--red)'}:{}}>
             <div className="gh-workflow">{run.name}</div>
             <div className="gh-status">{statusIcon(run.status,run.conclusion)}</div>
             <div className="gh-age">{fmt.ago(run.updated_at||run.created_at)}</div>
@@ -1293,13 +1432,43 @@ function AlertsTab({ data, onResolve }) {
         ))}
       </div>
 
+      {/* Pipeline Failures (from PIPELINE_RUNS table) */}
+      {pipelineAlerts.length > 0 && (
+        <>
+          <div className="section-header">
+            <span className="section-title">Pipeline Failures</span>
+            <span className="section-sub">{pipelineAlerts.length} in last 7 days</span>
+          </div>
+          {pipelineAlerts.map(a=>(
+            <div key={a.id} style={{
+              marginBottom:8,padding:'10px 14px',
+              background:'rgba(232,64,64,0.04)',
+              border:'1px solid rgba(232,64,64,0.15)',
+              borderLeft:'3px solid var(--red)',
+              borderRadius:3,
+            }}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                <span style={{fontSize:10,fontWeight:700,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.06em'}}>{a.type}</span>
+                {a.pipeline_status && <span style={{fontSize:9,padding:'1px 6px',background:'var(--red-dim)',color:'var(--red)',borderRadius:2,fontWeight:600}}>{a.pipeline_status}</span>}
+                {a.station&&<span style={{fontSize:9,color:'var(--text-dim)'}}>{a.station}</span>}
+                <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{a.ts ? fmt.ts(a.ts) : '—'}</span>
+              </div>
+              <div style={{fontSize:10,color:'var(--text-dim)'}}>
+                {typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)}
+              </div>
+            </div>
+          ))}
+          <div style={{marginBottom:20}}/>
+        </>
+      )}
+
       <div className="section-header">
         <span className="section-title">System Alerts</span>
-        <span className="section-sub">{unresolved.length} unresolved</span>
+        <span className="section-sub">{unresolved.filter(a=>a.origin!=='pipeline_run').length} unresolved</span>
       </div>
-      {data.alerts.length === 0 ? (
-        <div className="empty-state"><div className="icon">✅</div>No alerts.</div>
-      ) : data.alerts.map(a=>(
+      systemAlerts.length === 0 ? (
+        <div className="empty-state"><div className="icon">✅</div>No system alerts.</div>
+      ) : systemAlerts.map(a=>(
         <div key={a.id} style={{
           marginBottom:8,padding:'10px 14px',
           background:a.resolved?'var(--bg1)':'var(--bg2)',
@@ -1317,10 +1486,10 @@ function AlertsTab({ data, onResolve }) {
             {typeof a.detail === 'string' && a.detail.includes('html_url') ? (
               <>
                 {JSON.parse(a.detail).error}
-                <a 
-                  href={JSON.parse(a.detail).html_url} 
-                  target="_blank" 
-                  rel="noreferrer" 
+                <a
+                  href={JSON.parse(a.detail).html_url}
+                  target="_blank"
+                  rel="noreferrer"
                   style={{color:'var(--cyan)', marginLeft:8}}
                 >
                   View Logs ↗
@@ -1426,14 +1595,14 @@ function ParamsTab({ data }) {
 }
 
 // ─── BSS DRILLDOWN ────────────────────────────────────────────────────────────
-function BSSdrilldown({ cell, onClose }) {
+function BSSdrilldown({ cell, onClose, bssEnter = 0.07, bssExit = 0.03 }) {
   useEffect(()=>{
     const h=(e)=>{ if(e.key==='Escape') onClose(); };
     window.addEventListener('keydown',h);
     return()=>window.removeEventListener('keydown',h);
   },[onClose]);
   if(!cell) return null;
-  const bssCol=cell.bss>=0.07?'var(--green)':cell.bss>=0.03?'var(--amber)':cell.bss>=0?'var(--text-dim)':'var(--red)';
+  const bssCol=cell.bss>=bssEnter?'var(--green)':cell.bss>=bssExit?'var(--amber)':cell.bss>=0?'var(--text-dim)':'var(--red)';
   return (
     <div className="drilldown-panel">
       <div className="drilldown-header">
@@ -1469,9 +1638,9 @@ function BSSdrilldown({ cell, onClose }) {
         <div style={{marginTop:14,padding:'10px',background:'var(--bg2)',borderRadius:3,border:'1px solid var(--border)'}}>
           <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:6}}>Skill Gate Thresholds</div>
           <div style={{display:'flex',gap:0,borderRadius:2,overflow:'hidden',height:18}}>
-            <div style={{flex:3,background:'var(--red-dim)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--red)'}}>exit &lt;0.03</div>
-            <div style={{flex:4,background:'rgba(245,166,35,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--amber)'}}>0.03–0.07</div>
-            <div style={{flex:10,background:'var(--green-dim)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--green)'}}>qualified ≥0.07</div>
+            <div style={{flex:3,background:'var(--red-dim)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--red)'}}>exit &lt;{bssExit}</div>
+            <div style={{flex:4,background:'rgba(245,166,35,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--amber)'}}>{bssExit}–{bssEnter}</div>
+            <div style={{flex:10,background:'var(--green-dim)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'var(--green)'}}>qualified ≥{bssEnter}</div>
           </div>
           <div style={{marginTop:6,fontSize:9,color:'var(--text-dim)'}}>
             Current: <span style={{color:bssCol,fontWeight:700}}>{cell.bss.toFixed(4)}</span>
@@ -1488,6 +1657,10 @@ function BSSTab({ data }) {
   const [viewMode,setViewMode]=useState('grid');
   const [drillCell,setDrillCell]=useState(null);
   const [sortBy,setSortBy]=useState('score');
+
+  const params = data.params || [];
+  const bssEnter = getParam(params, 'gate.bss_enter', 0.07);
+  const bssExit  = getParam(params, 'gate.bss_exit',  0.03);
 
   const matrix=data.bss_matrix||[];
   const stations=[...new Set(matrix.map(r=>r.station))];
@@ -1511,7 +1684,7 @@ function BSSTab({ data }) {
   return (
     <div className="section fadein" style={{position:'relative'}}>
       <div className="section-header">
-        <span className="section-title">BSS Skill Matrix</span>
+        <span className="section-title">BSS Skill Matrix<InfoTip text="Brier Skill Score matrix. BSS compares our model's probability forecasts against a climatological baseline. BSS > 0 means our model outperforms the baseline; higher is better." /></span>
         <span style={{fontSize:9,color:'var(--text-dim)'}}>{qualified}/{matrix.length} cells qualified</span>
         <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
           {['grid','cards'].map(v=>(
@@ -1541,7 +1714,7 @@ function BSSTab({ data }) {
                     <td className="bss-station">{st}</td>
                     {types.map(tt=>brackets.map(lb=>{
                       const cell=getCell(st,tt,lb);
-                      const cls=cell?bssColor(cell.bss):'bss-cell-n';
+                      const cls=cell?bssColor(cell.bss, bssEnter, bssExit):'bss-cell-n';
                       return (
                         <td key={`${tt}-${lb}`}>
                           <div className={cls} title={`${st} · ${tt} · ${lb}: BSS=${cell?.bss?.toFixed(4)||'N/A'}${cell?.qualified?' ✓':''}`}
@@ -1557,7 +1730,7 @@ function BSSTab({ data }) {
             </table>
           </div>
           <div className="bss-legend">
-            {[{cls:'bss-cell-q',label:'Qualified (≥0.07)'},{cls:'bss-cell-m',label:'Marginal (0.03–0.07)'},{cls:'bss-cell-n',label:'Below exit (<0.03)'},{cls:'bss-cell-p',label:'Negative'}].map(({cls,label})=>(
+            {[{cls:'bss-cell-q',label:`Qualified (≥${bssEnter})`},{cls:'bss-cell-m',label:`Marginal (${bssExit}–${bssEnter})`},{cls:'bss-cell-n',label:`Below exit (<${bssExit})`},{cls:'bss-cell-p',label:'Negative'}].map(({cls,label})=>(
               <div key={cls} className="bss-leg-item"><div className={`bss-leg-box ${cls}`}/><span>{label}</span></div>
             ))}
             <span style={{marginLeft:'auto',fontSize:9,color:'var(--text-dim)'}}>Click any cell for drilldown</span>
@@ -1581,7 +1754,7 @@ function BSSTab({ data }) {
                   <div className="sc-id">{sc.id}</div>
                   <div className="sc-city">{sc.city}</div>
                   <div className="sc-score" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <span>Mean BSS: <strong style={{color:sc.meanBSS>=0.07?'var(--green)':sc.meanBSS>=0.03?'var(--amber)':'var(--red)'}}>{sc.meanBSS.toFixed(3)}</strong></span>
+                    <span>Mean BSS: <strong style={{color:sc.meanBSS>=bssEnter?'var(--green)':sc.meanBSS>=bssExit?'var(--amber)':'var(--red)'}}>{sc.meanBSS.toFixed(3)}</strong></span>
                     {sc.hStar&&<span style={{fontSize:9,color:'var(--cyan)'}}>h*={sc.hStar}</span>}
                   </div>
                   <div style={{fontSize:9,color:'var(--text-dim)',marginBottom:5}}>{sc.qCount}/10 cells qualified</div>
@@ -1591,7 +1764,7 @@ function BSSTab({ data }) {
                         <span style={{fontSize:7,color:'var(--text-dim)',width:12,flexShrink:0}}>{tt[0]}</span>
                         {brackets.map(lb=>{
                           const cell=getCell(sc.id,tt,lb);
-                          const bg=!cell?'var(--bg3)':cell.bss>=0.07?'rgba(46,192,122,0.45)':cell.bss>=0.03?'rgba(245,166,35,0.35)':cell.bss>=0?'rgba(255,255,255,0.06)':'rgba(232,64,64,0.3)';
+                          const bg=!cell?'var(--bg3)':cell.bss>=bssEnter?'rgba(46,192,122,0.45)':cell.bss>=bssExit?'rgba(245,166,35,0.35)':cell.bss>=0?'rgba(255,255,255,0.06)':'rgba(232,64,64,0.3)';
                           return (<div key={lb} className="sc-mini-cell" style={{background:bg}} title={`${sc.id} ${tt} ${lb}: ${cell?cell.bss.toFixed(3):'N/A'}`} onClick={()=>setDrillCell(cell?{...cell,station:sc.id,type:tt,bracket:lb}:null)}/>);
                         })}
                       </div>
@@ -1605,7 +1778,7 @@ function BSSTab({ data }) {
       )}
 
       {drillCell && (
-        <><div style={{position:'fixed',inset:0,zIndex:150}} onClick={()=>setDrillCell(null)}/><BSSdrilldown cell={drillCell} onClose={()=>setDrillCell(null)}/></>
+        <><div style={{position:'fixed',inset:0,zIndex:150}} onClick={()=>setDrillCell(null)}/><BSSdrilldown cell={drillCell} onClose={()=>setDrillCell(null)} bssEnter={bssEnter} bssExit={bssExit}/></>
       )}
     </div>
   );
@@ -1620,7 +1793,7 @@ function StationsTab({ data }) {
   return (
     <div className="section fadein">
       <div className="section-header">
-        <span className="section-title">Station Health — METAR Freshness</span>
+        <span className="section-title">Station Health — METAR Freshness<InfoTip text="METAR (Aviation Weather) observations provide intraday temperature readings. Stations are considered stale if the most recent METAR is older than 120 minutes." /></span>
         <span className="section-sub">Stale threshold: 120 min</span>
       </div>
       <div style={{display:'flex',gap:12,marginBottom:12}}>
@@ -1693,7 +1866,7 @@ function ModelsTab({ data }) {
     <div className="section fadein">
       {/* Kalman Heatmap */}
       <div className="section-header">
-        <span className="section-title">Kalman Bias Heatmap</span>
+        <span className="section-title">Kalman Bias Heatmap<InfoTip text="Shows the Kalman filter's estimated bias (B_k) for each station. Warm colors = positive bias (model overshoots), cool = negative (model undershoots). Opacity reflects certainty (1 - U_k/4)." /></span>
         <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>
           {bigBias} filters |B_k| &gt;1°F · {highUnc} high uncertainty (U_k &gt;2)
         </span>
@@ -1741,7 +1914,7 @@ function ModelsTab({ data }) {
       </div>
 
       {/* Ensemble Weight Breakdown */}
-      <div className="section-header"><span className="section-title">Ensemble Weight Breakdown</span></div>
+      <div className="section-header"><span className="section-title">Ensemble Weight Breakdown<InfoTip text="Weight assigned to each weather model in the ensemble. Weights are derived from entropy-regularized BSS scores with staleness decay. High concentration in one model may indicate limited forecast diversity." /></span></div>
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
         <span style={{fontSize:10,color:'var(--text-dim)'}}>Station:</span>
         <select value={selectedStation} onChange={e=>setSelectedStation(e.target.value)} style={{background:'var(--bg2)',border:'1px solid var(--border2)',color:'var(--text-bright)',padding:'4px 8px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:11,outline:'none',cursor:'pointer'}}>
@@ -2140,9 +2313,10 @@ const SVC_GROUPS = [
         healthKey: 'collection',
         expected: 720,
         getMetrics(day) {
-          const pct = day.forecast_rows / 720 * 100;
+          const expected = 720; // from DB: status.expected_forecast_rows
+          const pct = day.forecast_rows / expected * 100;
           return {
-            primary: `${day.forecast_rows.toLocaleString()} / 720 forecast rows`,
+            primary: `${day.forecast_rows.toLocaleString()} / ${expected} forecast rows`,
             pct,
             badge: day.morning_status,
             lines: [
@@ -2161,15 +2335,16 @@ const SVC_GROUPS = [
         healthKey: 'metar',
         expected: 20,
         getMetrics(day) {
+          const expected = 20; // from DB: status.expected_obs_rows
           return {
-            primary: `${day.metar_stations} / 20 stations with intraday data`,
-            pct: day.metar_stations / 20 * 100,
+            primary: `${day.metar_stations} / ${expected} stations with intraday data`,
+            pct: day.metar_stations / expected * 100,
             badge: null,
             lines: [
-              day.metar_stations === 20
+              day.metar_stations === expected
                 ? 'Full station coverage'
                 : day.metar_stations > 0
-                  ? `${20 - day.metar_stations} station(s) missing`
+                  ? `${expected - day.metar_stations} station(s) missing`
                   : 'No METAR data recorded',
             ],
           };
@@ -2191,9 +2366,10 @@ const SVC_GROUPS = [
         healthKey: 'pipeline_night',
         expected: 20,
         getMetrics(day) {
+          const expected = 20; // from DB: status.expected_obs_rows
           return {
-            primary: `${day.obs_rows} / 20 station observations ingested`,
-            pct: day.obs_rows / 20 * 100,
+            primary: `${day.obs_rows} / ${expected} station observations ingested`,
+            pct: day.obs_rows / expected * 100,
             badge: day.night_status,
             lines: [
               day.amendments > 0
@@ -2212,9 +2388,10 @@ const SVC_GROUPS = [
         healthKey: 'pricing',
         expected: 600,
         getMetrics(day) {
-          const pct = day.shadow_rows / 600 * 100;
+          const expected = 600; // from DB: status.expected_shadow_rows
+          const pct = day.shadow_rows / expected * 100;
           return {
-            primary: `${day.shadow_rows.toLocaleString()} / 600 bins priced`,
+            primary: `${day.shadow_rows.toLocaleString()} / ${expected} bins priced`,
             pct,
             badge: day.market_status,
             lines: [
@@ -2319,15 +2496,29 @@ function BarTooltip({ day, service, barIndex, totalBars }) {
     });
   };
  
-  // Flip tooltip to the left when in the right 40% of the bar track
-  const isRight = barIndex / totalBars > 0.6;
+  
+  // Calculate horizontal position based on which bar is hovered
+  // Each bar takes (100% / totalBars) of the track width
+  const barPct = ((barIndex + 0.5) / totalBars) * 100;
+  const tooltipWidth = 260;
+
+  // Determine alignment strategy based on bar position
+  // Left 20%: align left edge, Right 20%: align right edge, Middle: center on bar
+  const isLeftEdge  = barPct < 20;
+  const isRightEdge = barPct > 80;
+
+  const posStyle = isLeftEdge
+    ? { left: 0 }
+    : isRightEdge
+      ? { right: 0 }
+      : { left: `${barPct}%`, transform: 'translateX(-50%)' };
  
   return (
     <div style={{
       position: 'absolute',
       bottom: 'calc(100% + 10px)',
-      [isRight ? 'right' : 'left']: 0,
-      width: 260,
+      ...posStyle,
+      width: tooltipWidth,
       background: '#111318',
       border: `1px solid ${color}40`,
       borderTop: `2px solid ${color}`,
@@ -2983,7 +3174,7 @@ function PaperTab() {
           <div className="stat-sub">{ov.n_won || 0}W / {ov.n_lost || 0}L of {ov.n_settled || 0} settled</div>
         </div>
         <div className="stat-box">
-          <div className="stat-label">Avg Brier Score</div>
+          <div className="stat-label">Avg Brier Score<InfoTip text="Average Brier Score of settled paper bets. BS = (p - outcome)². Lower is better; 0 = perfect, 0.25 = random guessing." /></div>
           <div className="stat-val" style={{ color: br.avg_brier != null ? (br.avg_brier < 0.1 ? 'var(--green)' : 'var(--amber)') : 'var(--text-dim)' }}>
             {br.avg_brier != null ? br.avg_brier.toFixed(4) : '—'}
           </div>
@@ -3242,15 +3433,22 @@ export default function Dashboard() {
     }
   };
 
+  const [kalshiPositions, setKalshiPositions] = useState(null);
+
   useEffect(() => {
-    const fetchBalance = () =>
+    const fetchKalshi = () => {
       fetch('/api/kalshi/balance')
         .then(r => r.ok ? r.json() : null)
         .then(d => d && setLiveBalance(d))
         .catch(() => {});
-        
-    fetchBalance();
-    const t = setInterval(fetchBalance, 30_000);
+        fetch('/api/kalshi/positions')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d && setKalshiPositions(d))
+        .catch(() => {});
+    };
+
+    fetchKalshi();
+    const t = setInterval(fetchKalshi, 30_000);
     return () => clearInterval(t);
   }, []);
 
@@ -3328,6 +3526,10 @@ export default function Dashboard() {
   
   const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
   const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
+  // Log any unresolved alerts or errors to console for visibility
+  if (unresolvedAlerts > 0) {
+    console.info(`[KalshiCast] ${unresolvedAlerts} unresolved alert(s) active`);
+  }
   const staleStations=(data.stations||[]).filter(st=>st.metar_age_min>=120).length;
 
   // --- NEW STATE LOGIC ---
@@ -3381,7 +3583,7 @@ export default function Dashboard() {
               <div className={`tmet-val ${(s.cumulative_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.cumulative_pnl||0)}</div>
             </div>
             <div className="tmet">
-              <div className="tmet-label">MDD</div>
+              <div className="tmet-label">MDD<InfoTip text="Maximum Drawdown — the largest peak-to-trough portfolio decline." /></div>
               <div className="tmet-val warn">{fmt.pct2(s.mdd_alltime||0)}</div>
             </div>
             <div className="tmet">
@@ -3481,7 +3683,7 @@ export default function Dashboard() {
         {/* CONTENT */}
         <div className="content">
           {tab==='overview'  && <OverviewTab  data={data} liveBalance={liveBalance} onToggleTrading={toggleTrading}/>}
-          {tab==='positions' && <PositionsTab data={data} onOpenModal={openModal}/>}
+          {tab==='positions' && <PositionsTab data={data} onOpenModal={openModal} kalshiPositions={kalshiPositions}/>}
           {tab==='bets'      && <BetsTab      data={data}/>}
           {tab==='paper'     && <PaperTab     data={data}/>}
           {tab==='alerts'    && <AlertsTab    data={data} onResolve={resolveAlert}/>}
