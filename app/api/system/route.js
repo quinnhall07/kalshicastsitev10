@@ -61,7 +61,8 @@ export async function GET() {
            WHERE param_key IN (
              'system.trading_halted',
              'system.trading_offline',
-             'system.offline_reason'
+             'system.offline_reason',
+             'system.paper_mode'
            )`
         ),
       ]);
@@ -152,6 +153,7 @@ export async function GET() {
         if (key === 'system.trading_halted')  systemData.trading_halted  = (val === 'true');
         if (key === 'system.trading_offline') systemData.trading_offline = (val === 'true');
         if (key === 'system.offline_reason')  systemData.offline_reason  = val;
+        if (key === 'system.paper_mode')      systemData.paper_mode      = (val === 'true');
       }
     }
 

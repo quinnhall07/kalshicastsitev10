@@ -3,14 +3,14 @@ import { getDbConnection } from '../../../lib/db';
  
 export const dynamic = 'force-dynamic';
  
-// Expected healthy row counts per calendar day
-const EXPECTED = {
+// Default expected row counts — overridden at runtime by PARAMS if available
+const DEFAULT_EXPECTED = {
   forecast_rows: 720,   // 20 stations × 9 sources × 4 target days
   shadow_rows: 600,     // 20 stations × 2 types × 15 bins
   obs_rows: 20,         // 20 active stations
 };
  
-function scoreDay(d) {
+function scoreDay(d, expected = DEFAULT_EXPECTED) {
   // If absolutely nothing was recorded, the system likely wasn't running yet
   const hasAnyData =
     d.forecast_rows > 0 || d.shadow_rows > 0 || d.obs_rows > 0 ||
@@ -48,19 +48,19 @@ function scoreDay(d) {
   // Collection: prefer pipeline status, supplement with row-count ratio
   const collectionHealth = d.morning_status
     ? (d.morning_status === 'OK'
-        ? healthFromPct(pct(d.forecast_rows, EXPECTED.forecast_rows))
+        ? healthFromPct(pct(d.forecast_rows, expected.forecast_rows))
         : statusToHealth(d.morning_status))
-    : healthFromPct(pct(d.forecast_rows, EXPECTED.forecast_rows));
+    : healthFromPct(pct(d.forecast_rows, expected.forecast_rows));
  
   // Pricing: prefer market_open status, supplement with shadow book row ratio
   const pricingHealth = d.market_status
     ? (d.market_status === 'OK'
-        ? healthFromPct(pct(d.shadow_rows, EXPECTED.shadow_rows))
+        ? healthFromPct(pct(d.shadow_rows, expected.shadow_rows))
         : statusToHealth(d.market_status))
-    : healthFromPct(pct(d.shadow_rows, EXPECTED.shadow_rows));
+    : healthFromPct(pct(d.shadow_rows, expected.shadow_rows));
  
-  // METAR: fraction of 20 stations with actual observations
-  const metarFrac = d.metar_stations / 20;
+  // METAR: fraction of expected stations with actual observations
+  const metarFrac = d.metar_stations / expected.obs_rows;
   const metarHealth =
     d.metar_stations === 0 ? 'no_data'
     : metarFrac >= 0.85 ? 'healthy'
@@ -199,6 +199,25 @@ export async function GET() {
       ORDER BY dr.day_date ASC
     `;
  
+    // Fetch expected row counts from PARAMS (optional override)
+    let expected = { ...DEFAULT_EXPECTED };
+    try {
+      const paramResult = await connection.execute(
+        `SELECT PARAM_KEY, PARAM_VALUE FROM PARAMS
+         WHERE PARAM_KEY IN (
+           'status.expected_forecast_rows',
+           'status.expected_shadow_rows',
+           'status.expected_obs_rows'
+         )`
+      );
+      for (const row of (paramResult.rows || [])) {
+        const k = row[0], v = Number(row[1]);
+        if (k === 'status.expected_forecast_rows' && v > 0) expected.forecast_rows = v;
+        if (k === 'status.expected_shadow_rows'   && v > 0) expected.shadow_rows = v;
+        if (k === 'status.expected_obs_rows'       && v > 0) expected.obs_rows = v;
+      }
+    } catch (_) { /* use defaults if param query fails */ }
+
     const result = await connection.execute(sql);
  
     const days = result.rows.map(row => {
@@ -223,7 +242,7 @@ export async function GET() {
         alert_types:       row[17] ? String(row[17]) : null,
         metar_stations:    Number(row[18]) || 0,
       };
-      return { ...d, health: scoreDay(d) };
+      return { ...d, health: scoreDay(d, expected) };
     });
  
     return NextResponse.json(days);

@@ -11,6 +11,7 @@ function erf(x) {
   const y = 1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-ax*ax);
   return sign*y;
 }
+
 function normCDF(x) { return 0.5*(1+erf(x/Math.SQRT2)); }
 function normPDF(x) { return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
 function skewnormPDF(x,alpha,xi,omega) {
