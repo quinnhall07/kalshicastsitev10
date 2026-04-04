@@ -1466,7 +1466,7 @@ function AlertsTab({ data, onResolve }) {
         <span className="section-title">System Alerts</span>
         <span className="section-sub">{unresolved.filter(a=>a.origin!=='pipeline_run').length} unresolved</span>
       </div>
-      systemAlerts.length === 0 ? (
+      {systemAlerts.length === 0 ? (
         <div className="empty-state"><div className="icon">✅</div>No system alerts.</div>
       ) : systemAlerts.map(a=>(
         <div key={a.id} style={{
