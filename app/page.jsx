@@ -297,7 +297,7 @@ const css = `
   .info-tip-wrap { position:relative; display:inline-flex; align-items:center; margin-left:4px; cursor:help; }
   .info-tip-icon { display:inline-flex; align-items:center; justify-content:center; width:13px; height:13px; border-radius:50%; border:1px solid var(--text-dim); color:var(--text-dim); font-size:8px; font-weight:700; font-style:italic; line-height:1; transition:all 0.15s; flex-shrink:0; }
   .info-tip-wrap:hover .info-tip-icon { border-color:var(--amber); color:var(--amber); }
-  .info-tip-popup { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); width:max-content; max-width:280px; padding:8px 12px; background:var(--bg2); border:1px solid var(--border2); border-radius:3px; box-shadow:0 6px 20px rgba(0,0,0,0.7); font-size:10px; font-style:normal; font-weight:400; color:var(--text); line-height:1.5; letter-spacing:0; text-transform:none; z-index:200; pointer-events:none; white-space:normal; }
+  .info-tip-popup { position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); width:max-content; max-width:280px; padding:8px 12px; background:var(--bg2); border:1px solid var(--border2); border-radius:3px; box-shadow:0 6px 20px rgba(0,0,0,0.7); font-size:10px; font-style:normal; font-weight:400; color:var(--text); line-height:1.5; letter-spacing:0; text-transform:none; z-index:999; pointer-events:none; white-space:normal; }
 
   @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
   @keyframes slideInRight { from{transform:translateX(100%)} to{transform:translateX(0)} }
