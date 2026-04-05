@@ -282,6 +282,31 @@ const css = `
   .gate-val { flex:1; color:var(--text-dim); }
   .gate-pass { color:var(--green); } .gate-fail { color:var(--red); }
 
+  /* DB WARNING BANNER */
+  .db-warn-banner { display:flex; align-items:center; gap:12px; padding:10px 20px; background:rgba(232,64,64,0.08); border-bottom:1px solid rgba(232,64,64,0.25); font-size:10px; color:var(--red); font-weight:600; letter-spacing:0.06em; text-transform:uppercase; flex-shrink:0; }
+  .db-warn-banner .pulse-dot { width:7px; height:7px; border-radius:50%; background:var(--red); animation:pulse 0.8s ease-in-out infinite; flex-shrink:0; }
+  .db-warn-banner .detail { font-weight:400; color:var(--text-dim); text-transform:none; letter-spacing:0; margin-left:auto; font-size:9px; }
+
+  /* HEALTH SUMMARY */
+  .health-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin-bottom:16px; }
+  .health-item { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--bg1); border:1px solid var(--border); border-radius:3px; }
+  .health-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .health-dot.green { background:var(--green); box-shadow:0 0 4px var(--green); }
+  .health-dot.amber { background:var(--amber); box-shadow:0 0 4px var(--amber); }
+  .health-dot.red { background:var(--red); box-shadow:0 0 4px var(--red); }
+  .health-dot.dim { background:var(--muted); }
+  .health-info { flex:1; min-width:0; }
+  .health-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; }
+  .health-val { font-size:12px; font-weight:500; color:var(--text-bright); margin-top:1px; }
+
+  /* SEVERITY FILTER */
+  .filter-bar { display:flex; gap:6px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .filter-btn { padding:3px 10px; border-radius:2px; font-family:var(--font-mono); font-size:9px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:0.06em; border:1px solid var(--border2); background:transparent; color:var(--text-dim); transition:all 0.15s; }
+  .filter-btn:hover { background:var(--bg2); color:var(--text-bright); }
+  .filter-btn.active { background:rgba(245,166,35,0.1); color:var(--amber); border-color:var(--amber-dim); }
+  .filter-btn.active-red { background:rgba(232,64,64,0.1); color:var(--red); border-color:rgba(232,64,64,0.3); }
+  .filter-btn.active-green { background:rgba(46,192,122,0.1); color:var(--green); border-color:rgba(46,192,122,0.3); }
+
   /* EMPTY / ERROR STATES */
   .empty-state { padding:32px; text-align:center; color:var(--text-dim); font-size:11px; }
   .empty-state .icon { font-size:24px; margin-bottom:8px; opacity:0.4; }
@@ -416,6 +441,7 @@ const EMPTY_STATE = {
   open_positions: [],
   recent_bets: [],
   alerts: [],
+  alert_summary: { total: 0, unresolved: 0, critical: 0, warning: 0, info: 0 },
   params: [],
   bss_matrix: [],
   stations: [],
@@ -460,8 +486,11 @@ function useData() {
       results.forEach(({ status, value }, i) => {
         const key = endpoints[i][1];
         if (status === 'fulfilled') {
-          // Safety check: Don't let an API error object overwrite an array default
-          if (Array.isArray(EMPTY_STATE[key]) && !Array.isArray(value)) {
+          // Unpack alerts response { alerts: [...], summary: {...} }
+          if (key === 'alerts' && value && !Array.isArray(value) && Array.isArray(value.alerts)) {
+            merged.alerts = value.alerts;
+            merged.alert_summary = value.summary || EMPTY_STATE.alert_summary;
+          } else if (Array.isArray(EMPTY_STATE[key]) && !Array.isArray(value)) {
             console.warn(`Expected array for ${key}, got:`, value);
           } else {
             merged[key] = value;
@@ -916,11 +945,11 @@ function AuditContent({ data }) {
 function OverviewTab({ data, liveBalance, onToggleTrading }) {
   const s = data.system;
   const params = data.params || [];
-  
+
   // Read MDD thresholds from params (fallback to defaults if not found)
   const mddSafe = getParam(params, 'drawdown.mdd_safe', 0.10);
   const mddHalt = getParam(params, 'drawdown.mdd_halt', 0.20);
-  
+
   // Local MDD Color helper using dynamic thresholds
   const localMddColor = (mdd) => {
     if(mdd >= mddHalt) return "var(--red)";
@@ -932,6 +961,32 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
   const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
   const winRate = s.n_bets_total > 0 ? s.n_bets_won / s.n_bets_total : 0;
   const mddFill = Math.min(s.mdd_alltime / mddHalt, 1) * 100;
+
+  // Pipeline freshness — find most recent run of each type
+  const pipelineRuns = data.pipeline_runs || [];
+  const pipelineFreshness = {};
+  for (const r of pipelineRuns) {
+    const t = r.type || r.run_type;
+    if (!t) continue;
+    if (!pipelineFreshness[t] || new Date(r.started) > new Date(pipelineFreshness[t].started)) {
+      pipelineFreshness[t] = r;
+    }
+  }
+  const pipelineTypes = ['morning', 'night', 'market_open'];
+  const pipelineHealth = pipelineTypes.map(t => {
+    const run = pipelineFreshness[t];
+    if (!run) return { type: t, dot: 'dim', label: 'Never run' };
+    const hoursAgo = (Date.now() - new Date(run.started)) / 3_600_000;
+    const maxHours = t === 'morning' ? 6 : 28;
+    const status = run.status || '';
+    if (status !== 'OK' && status !== 'SUCCESS') return { type: t, dot: 'red', label: `${status} — ${fmt.ago(run.started)}` };
+    if (hoursAgo > maxHours) return { type: t, dot: 'amber', label: `OK — ${fmt.ago(run.started)} (stale)` };
+    return { type: t, dot: 'green', label: `OK — ${fmt.ago(run.started)}` };
+  });
+  const staleStations = (data.stations || []).filter(st => st.metar_age_min >= 120).length;
+  const totalStations = (data.stations || []).length;
+  const unresolvedAlerts = (data.alerts || []).filter(a => !a.resolved).length;
+  const criticalAlerts = (data.alert_summary || {}).critical || 0;
   
   return (
     <div className="section fadein">
@@ -993,6 +1048,48 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
         </div>
       </div>
 
+      {/* System Health At-a-Glance */}
+      <div className="section-header" style={{ marginTop: 8 }}>
+        <span className="section-title">System Health</span>
+        <span className="section-sub">Quick-glance health indicators</span>
+      </div>
+      <div className="health-grid">
+        {pipelineHealth.map(p => (
+          <div className="health-item" key={p.type}>
+            <div className={`health-dot ${p.dot}`} />
+            <div className="health-info">
+              <div className="health-label">{p.type.replace('_', ' ')}</div>
+              <div className="health-val" style={{fontSize:10}}>{p.label}</div>
+            </div>
+          </div>
+        ))}
+        <div className="health-item">
+          <div className={`health-dot ${staleStations === 0 ? 'green' : staleStations <= 3 ? 'amber' : 'red'}`} />
+          <div className="health-info">
+            <div className="health-label">Stations</div>
+            <div className="health-val" style={{fontSize:10}}>
+              {staleStations === 0 ? `All ${totalStations} live` : `${staleStations}/${totalStations} stale`}
+            </div>
+          </div>
+        </div>
+        <div className="health-item">
+          <div className={`health-dot ${unresolvedAlerts === 0 ? 'green' : criticalAlerts > 0 ? 'red' : 'amber'}`} />
+          <div className="health-info">
+            <div className="health-label">Alerts</div>
+            <div className="health-val" style={{fontSize:10}}>
+              {unresolvedAlerts === 0 ? 'No issues' : `${unresolvedAlerts} unresolved${criticalAlerts > 0 ? ` (${criticalAlerts} critical)` : ''}`}
+            </div>
+          </div>
+        </div>
+        <div className="health-item">
+          <div className={`health-dot ${s.db_connected ? 'green' : 'red'}`} />
+          <div className="health-info">
+            <div className="health-label">Database</div>
+            <div className="health-val" style={{fontSize:10}}>{s.db_connected ? 'Connected' : 'Disconnected'}</div>
+          </div>
+        </div>
+      </div>
+
       <div style={{marginBottom:14,padding:'10px 12px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
           <span style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Max Drawdown (All-Time)<InfoTip text="Maximum peak-to-trough decline in portfolio value. Trading automatically halts if MDD exceeds the HALT threshold." /></span>
@@ -1049,6 +1146,90 @@ function OverviewTab({ data, liveBalance, onToggleTrading }) {
           </div>
         </>
       )}
+      {/* Recent Critical/Warning Alerts Preview */}
+      {(() => {
+        const recentAlerts = (data.alerts || [])
+          .filter(a => !a.resolved && (a.severity || 0) >= 0.5)
+          .slice(0, 4);
+        if (recentAlerts.length === 0) return null;
+        return (
+          <>
+            <div className="section-header" style={{marginTop:8}}>
+              <span className="section-title">Active Alerts</span>
+              <span className="section-sub">{recentAlerts.length} recent issues</span>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:16}}>
+              {recentAlerts.map(a => (
+                <div key={a.id} style={{
+                  display:'flex', alignItems:'center', gap:10, padding:'8px 12px',
+                  background:'var(--bg1)', border:'1px solid var(--border)',
+                  borderLeft:`3px solid ${sevColor(a.severity||0)}`, borderRadius:3,
+                }}>
+                  <span style={{fontSize:10,fontWeight:700,color:sevColor(a.severity||0),textTransform:'uppercase',letterSpacing:'0.06em',minWidth:80}}>{a.type?.replace(/_/g,' ')}</span>
+                  <span style={{fontSize:10,color:'var(--text-dim)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    {typeof a.detail === 'string' ? a.detail.slice(0,120) : '—'}
+                  </span>
+                  <span style={{fontSize:9,color:'var(--text-dim)',flexShrink:0}}>{a.ts ? fmt.ago(a.ts) : ''}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Forecast Skill Snapshot */}
+      {(() => {
+        const bss = data.bss_matrix || [];
+        if (bss.length === 0) return null;
+        const qualified = bss.filter(r => r.qualified).length;
+        const avgBss = bss.reduce((a, r) => a + (r.bss || 0), 0) / bss.length;
+        const stations = [...new Set(bss.map(r => r.station))];
+        const stationAvg = stations.map(st => {
+          const cells = bss.filter(r => r.station === st);
+          return { id: st, avg: cells.reduce((a, r) => a + (r.bss || 0), 0) / cells.length, q: cells.filter(r => r.qualified).length };
+        }).sort((a, b) => b.avg - a.avg);
+        const top3 = stationAvg.slice(0, 3);
+        const bot3 = stationAvg.slice(-3).reverse();
+        return (
+          <>
+            <div className="section-header" style={{marginTop:8}}>
+              <span className="section-title">Forecast Skill Snapshot<InfoTip text="Summary of Brier Skill Score (BSS) matrix. BSS > 0 means our model outperforms climatology. Higher is better." /></span>
+              <span className="section-sub">{qualified}/{bss.length} cells qualified</span>
+            </div>
+            <div style={{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+              <div style={{padding:'10px 16px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,minWidth:120}}>
+                <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Mean BSS</div>
+                <div style={{fontSize:20,fontWeight:600,color:avgBss>=0.07?'var(--green)':avgBss>=0.03?'var(--amber)':'var(--red)',lineHeight:1.2}}>{avgBss.toFixed(4)}</div>
+              </div>
+              <div style={{padding:'10px 16px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3,minWidth:120}}>
+                <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Qualified</div>
+                <div style={{fontSize:20,fontWeight:600,color:'var(--green)',lineHeight:1.2}}>{qualified}<span style={{fontSize:12,color:'var(--text-dim)'}}>/{bss.length}</span></div>
+              </div>
+              <div style={{flex:1,display:'flex',gap:12,minWidth:200}}>
+                <div style={{flex:1,padding:'10px 14px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
+                  <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Top Stations</div>
+                  {top3.map(s => (
+                    <div key={s.id} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'1px 0'}}>
+                      <span style={{color:'var(--text-bright)',fontWeight:600}}>{s.id}</span>
+                      <span style={{color:'var(--green)'}}>{s.avg.toFixed(3)} ({s.q}q)</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{flex:1,padding:'10px 14px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:3}}>
+                  <div style={{fontSize:9,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:4}}>Weakest Stations</div>
+                  {bot3.map(s => (
+                    <div key={s.id} style={{display:'flex',justifyContent:'space-between',fontSize:10,padding:'1px 0'}}>
+                      <span style={{color:'var(--text-bright)',fontWeight:600}}>{s.id}</span>
+                      <span style={{color:s.avg>=0?'var(--amber)':'var(--red)'}}>{s.avg.toFixed(3)} ({s.q}q)</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       <div className="grid-2">
         {/* Left Column: Pipeline Runs */}
         <div>
@@ -1338,6 +1519,8 @@ function AlertsTab({ data, onResolve }) {
   const [ghRuns,setGhRuns]=useState(null);
   const [ghError,setGhError]=useState(false);
   const [ghLoading,setGhLoading]=useState(true);
+  const [sevFilter,setSevFilter]=useState('all'); // 'all' | 'critical' | 'warning' | 'info'
+  const [showResolved,setShowResolved]=useState(false);
 
   useEffect(()=>{
     let cancelled=false;
@@ -1376,10 +1559,23 @@ function AlertsTab({ data, onResolve }) {
     return <span style={{color:'var(--text-dim)'}}>— {val}</span>;
   };
 
-  // Separate system alerts vs pipeline failure alerts
+  // Separate alerts by origin, apply severity + resolved filters
   const allAlerts = data.alerts || [];
-  const systemAlerts = allAlerts.filter(a => a.origin !== 'pipeline_run');
-  const pipelineAlerts = allAlerts.filter(a => a.origin === 'pipeline_run');
+  const summary = data.alert_summary || { total: 0, unresolved: 0, critical: 0, warning: 0, info: 0 };
+
+  const sevMatch = (a) => {
+    if (sevFilter === 'all') return true;
+    if (sevFilter === 'critical') return (a.severity || 0) >= 0.8;
+    if (sevFilter === 'warning') return (a.severity || 0) >= 0.5 && (a.severity || 0) < 0.8;
+    if (sevFilter === 'info') return (a.severity || 0) < 0.5;
+    return true;
+  };
+  const resolvedMatch = (a) => showResolved || !a.resolved;
+  const filtered = allAlerts.filter(a => sevMatch(a) && resolvedMatch(a));
+
+  const systemAlerts = filtered.filter(a => a.origin === 'system_alert');
+  const pipelineAlerts = filtered.filter(a => a.origin === 'pipeline_run');
+  const healthAlerts = filtered.filter(a => a.origin === 'health_check');
   const unresolved = allAlerts.filter(a => !a.resolved);
 
   // Count failed GH Actions workflows
@@ -1399,20 +1595,42 @@ function AlertsTab({ data, onResolve }) {
   return (
     <div className="section fadein">
     {/* Active Failures Summary Banner */}
-      {(ghFailures.length > 0 || pipelineAlerts.length > 0 || unresolved.length > 0) && (
+      {(ghFailures.length > 0 || summary.unresolved > 0) && (
         <div style={{
           marginBottom:16, padding:'12px 16px',
           background:'rgba(232,64,64,0.06)', border:'1px solid rgba(232,64,64,0.2)',
           borderLeft:'4px solid var(--red)', borderRadius:3,
         }}>
-          <div style={{fontSize:10,fontWeight:700,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:6}}>Active Issues</div>
-          <div style={{display:'flex',gap:16,fontSize:10,color:'var(--text)'}}>
+          <div style={{fontSize:10,fontWeight:700,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:6}}>Active Issues — {summary.unresolved} unresolved</div>
+          <div style={{display:'flex',gap:16,flexWrap:'wrap',fontSize:10,color:'var(--text)'}}>
+            {summary.critical > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{summary.critical}</span> critical</span>}
+            {summary.warning > 0 && <span><span style={{color:'var(--amber)',fontWeight:700}}>{summary.warning}</span> warning(s)</span>}
             {ghFailures.length > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{ghFailures.length}</span> GH Actions failed</span>}
-            {pipelineAlerts.length > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{pipelineAlerts.length}</span> pipeline failure(s)</span>}
-            {unresolved.filter(a => a.origin !== 'pipeline_run').length > 0 && <span><span style={{color:'var(--amber)',fontWeight:700}}>{unresolved.filter(a => a.origin !== 'pipeline_run').length}</span> unresolved system alert(s)</span>}
+            {healthAlerts.length > 0 && <span><span style={{color:'var(--amber)',fontWeight:700}}>{healthAlerts.length}</span> health check issue(s)</span>}
           </div>
         </div>
       )}
+
+      {/* Severity Filter Bar */}
+      <div className="filter-bar">
+        <span style={{fontSize:9,color:'var(--text-dim)',letterSpacing:'0.08em',textTransform:'uppercase'}}>Filter:</span>
+        {[
+          {id:'all',label:`All (${allAlerts.filter(resolvedMatch).length})`},
+          {id:'critical',label:`Critical (${allAlerts.filter(a=>resolvedMatch(a)&&(a.severity||0)>=0.8).length})`,cls:'active-red'},
+          {id:'warning',label:`Warning (${allAlerts.filter(a=>resolvedMatch(a)&&(a.severity||0)>=0.5&&(a.severity||0)<0.8).length})`},
+          {id:'info',label:`Info (${allAlerts.filter(a=>resolvedMatch(a)&&(a.severity||0)<0.5).length})`},
+        ].map(f=>(
+          <button key={f.id} className={`filter-btn ${sevFilter===f.id?(f.cls||'active'):''}`} onClick={()=>setSevFilter(f.id)}>{f.label}</button>
+        ))}
+        <div style={{marginLeft:'auto'}} />
+        <button
+          className={`filter-btn ${showResolved?'active-green':''}`}
+          onClick={()=>setShowResolved(!showResolved)}
+        >
+          {showResolved ? 'Hide Resolved' : 'Show Resolved'}
+        </button>
+      </div>
+
       <div className="section-header">
         <span className="section-title">Pipeline Schedule — GitHub Actions</span>
         {GH_REPO && <a href={`https://github.com/${GH_REPO}/actions`} target="_blank" rel="noreferrer" style={{fontSize:9,color:'var(--cyan)',marginLeft:'auto',textDecoration:'none'}}>{GH_REPO} ↗</a>}
@@ -1462,9 +1680,38 @@ function AlertsTab({ data, onResolve }) {
         </>
       )}
 
+      {/* Health Check Alerts (stale pipelines, missing observations) */}
+      {healthAlerts.length > 0 && (
+        <>
+          <div className="section-header">
+            <span className="section-title">Health Check Issues</span>
+            <span className="section-sub">{healthAlerts.length} detected</span>
+          </div>
+          {healthAlerts.map(a=>(
+            <div key={a.id} style={{
+              marginBottom:8,padding:'10px 14px',
+              background:'rgba(245,158,11,0.04)',
+              border:'1px solid rgba(245,158,11,0.15)',
+              borderLeft:`3px solid ${sevColor(a.severity||0)}`,
+              borderRadius:3,
+            }}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                <span style={{fontSize:10,fontWeight:700,color:sevColor(a.severity||0),textTransform:'uppercase',letterSpacing:'0.06em'}}>{a.type}</span>
+                {a.source&&<span style={{fontSize:9,padding:'1px 6px',background:'var(--bg1)',color:'var(--text-dim)',borderRadius:2}}>{a.source}</span>}
+                {a.station&&<span style={{fontSize:9,color:'var(--text-dim)'}}>{a.station}</span>}
+              </div>
+              <div style={{fontSize:10,color:'var(--text-dim)'}}>
+                {typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)}
+              </div>
+            </div>
+          ))}
+          <div style={{marginBottom:20}}/>
+        </>
+      )}
+
       <div className="section-header">
         <span className="section-title">System Alerts</span>
-        <span className="section-sub">{unresolved.filter(a=>a.origin!=='pipeline_run').length} unresolved</span>
+        <span className="section-sub">{systemAlerts.filter(a=>!a.resolved).length} unresolved</span>
       </div>
       {systemAlerts.length === 0 ? (
         <div className="empty-state"><div className="icon">✅</div>No system alerts.</div>
@@ -3679,6 +3926,15 @@ export default function Dashboard() {
             </span>
           </div>
         </div>
+
+        {/* DB DISCONNECTION BANNER */}
+        {!s.db_connected && (
+          <div className="db-warn-banner">
+            <div className="pulse-dot" />
+            Database connection lost — data may be stale
+            <span className="detail">Last update: {s.last_checked ? fmt.ago(s.last_checked) : 'unknown'}</span>
+          </div>
+        )}
 
         {/* CONTENT */}
         <div className="content">
