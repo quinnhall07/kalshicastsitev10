@@ -30,6 +30,29 @@ const MODEL_COLORS = {
   OME_ICON:'#a855f7',OME_GEM:'#14b8a6',WAPI:'#f97316',VCR:'#ec4899',TOM:'#eab308',
 };
 
+const ACCENT_COLORS = {
+  amber:  { primary: '#f5a623', dim: 'rgba(245,166,35,0.15)', glow: 'rgba(245,166,35,0.25)' },
+  cyan:   { primary: '#00d4d8', dim: 'rgba(0,212,216,0.15)', glow: 'rgba(0,212,216,0.25)' },
+  green:  { primary: '#2ec07a', dim: 'rgba(46,192,122,0.15)', glow: 'rgba(46,192,122,0.25)' },
+  red:    { primary: '#e84040', dim: 'rgba(232,64,64,0.15)', glow: 'rgba(232,64,64,0.25)' },
+  violet: { primary: '#a78bfa', dim: 'rgba(167,139,250,0.15)', glow: 'rgba(167,139,250,0.25)' },
+  blue:   { primary: '#3b82f6', dim: 'rgba(59,130,246,0.15)', glow: 'rgba(59,130,246,0.25)' },
+};
+
+const FONT_SIZES = { small: 10, medium: 12, large: 14 };
+
+const TOP_BAR_METRIC_POOL = [
+  { id: 'bankroll', label: 'Bankroll' },
+  { id: 'daily_pnl', label: 'Daily P&L' },
+  { id: 'cumulative_pnl', label: 'Cumulative' },
+  { id: 'mdd', label: 'MDD' },
+  { id: 'win_rate', label: 'Win Rate' },
+  { id: 'open_positions', label: 'Open Pos.' },
+  { id: 'sharpe_ratio', label: 'Sharpe' },
+  { id: 'total_bets', label: 'Total Bets' },
+  { id: 'paper_pnl', label: 'Paper P&L' },
+];
+
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const css = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -47,7 +70,7 @@ const css = `
     --purple: #a855f7; --teal: #14b8a6;
   }
 
-  body { background:var(--bg0); color:var(--text); font-family:var(--font-mono); font-size:12px; line-height:1.5; overflow:hidden; }
+  body { background:var(--bg0); color:var(--text); font-family:var(--font-mono); font-size:var(--font-base, 12px); line-height:1.5; overflow:hidden; }
   .shell { display:flex; flex-direction:column; height:100vh; width:100vw; background:var(--bg0); }
 
   /* TOP BAR */
@@ -107,7 +130,7 @@ const css = `
   .grid-4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:12px; }
 
   /* CARDS */
-  .card { background:var(--bg1); border:1px solid var(--border); border-radius:3px; overflow:hidden; }
+  .card { background:var(--bg1); border:1px solid var(--border); border-radius:var(--card-radius, 3px); overflow:hidden; }
   .card-header { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:var(--bg2); border-bottom:1px solid var(--border); font-size:9px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-dim); }
   .card-header .card-title { color:var(--text-mid); }
   .card-body { padding:12px; }
@@ -350,6 +373,23 @@ const css = `
   .nuke-btn:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--border); color: var(--text-dim); background: transparent; }
   
   .nuke-scanline { position: absolute; top:0; left:0; right:0; bottom:0; background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.4) 51%); background-size: 100% 4px; pointer-events: none; z-index: 10; opacity: 0.8; }
+
+  /* LIGHT MODE */
+  [data-theme="light"] {
+    --bg0: #f5f5f7; --bg1: #ffffff; --bg2: #f0f0f3; --bg3: #e8e8ed;
+    --border: #d1d5db; --border2: #c0c4cc;
+    --text-dim: #6b7280; --text-mid: #4b5563; --text: #1f2937; --text-bright: #111827;
+    --muted: #9ca3af;
+  }
+  [data-theme="light"] .topbar::after { opacity: 0.6; }
+  [data-theme="light"] .nuke-box { background: #f5f5f7; }
+
+  /* COMPACT MODE */
+  [data-compact] .section { padding: 8px 12px; }
+  [data-compact] .card-body { padding: 8px; }
+  [data-compact] .tmet { padding: 0 10px; }
+  [data-compact] .stat-box { padding: 8px 10px; }
+  [data-compact] .stat-val { font-size: 16px; }
 `;
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -557,6 +597,42 @@ function useApiFetch(url) {
   }, [url]);
  
   return state;
+}
+
+function usePreferences() {
+  const [prefs, setPrefs] = useState({
+    accentColor: 'amber',
+    fontSize: 'medium',
+    theme: 'dark',
+    defaultTab: 'overview',
+    compactMode: false,
+    animations: true,
+    cardBorderRadius: 'sharp',
+    topBarMetrics: ['bankroll', 'daily_pnl', 'cumulative_pnl', 'mdd', 'win_rate', 'open_positions'],
+  });
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/preferences')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setPrefs(p => ({ ...p, ...d })); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  const save = async (newPrefs) => {
+    setPrefs(newPrefs);
+    try {
+      await fetch('/api/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPrefs),
+      });
+    } catch (e) {
+      console.error('Preferences save error:', e);
+    }
+  };
+
+  return { prefs, setPrefs, save, loaded };
 }
 
 // ─── MODAL: WRAPPER ───────────────────────────────────────────────────────────
@@ -1573,9 +1649,6 @@ function AlertsTab({ data, onResolve }) {
   const resolvedMatch = (a) => showResolved || !a.resolved;
   const filtered = allAlerts.filter(a => sevMatch(a) && resolvedMatch(a));
 
-  const systemAlerts = filtered.filter(a => a.origin === 'system_alert');
-  const pipelineAlerts = filtered.filter(a => a.origin === 'pipeline_run');
-  const healthAlerts = filtered.filter(a => a.origin === 'health_check');
   const unresolved = allAlerts.filter(a => !a.resolved);
 
   // Count failed GH Actions workflows
@@ -1585,9 +1658,6 @@ function AlertsTab({ data, onResolve }) {
   useEffect(() => {
     if (unresolved.length > 0) {
       console.warn(`[KalshiCast] ${unresolved.length} unresolved alert(s):`, unresolved.map(a => `${a.type}: ${typeof a.detail === 'string' ? a.detail.slice(0, 80) : '—'}`));
-    }
-    if (pipelineAlerts.length > 0) {
-      console.warn(`[KalshiCast] ${pipelineAlerts.length} pipeline failure(s) in last 7 days:`, pipelineAlerts.map(a => `${a.type}: ${typeof a.detail === 'string' ? a.detail.slice(0, 80) : '—'}`));
     }
   }, [allAlerts.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1606,7 +1676,6 @@ function AlertsTab({ data, onResolve }) {
             {summary.critical > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{summary.critical}</span> critical</span>}
             {summary.warning > 0 && <span><span style={{color:'var(--amber)',fontWeight:700}}>{summary.warning}</span> warning(s)</span>}
             {ghFailures.length > 0 && <span><span style={{color:'var(--red)',fontWeight:700}}>{ghFailures.length}</span> GH Actions failed</span>}
-            {healthAlerts.length > 0 && <span><span style={{color:'var(--amber)',fontWeight:700}}>{healthAlerts.length}</span> health check issue(s)</span>}
           </div>
         </div>
       )}
@@ -1650,72 +1719,13 @@ function AlertsTab({ data, onResolve }) {
         ))}
       </div>
 
-      {/* Pipeline Failures (from PIPELINE_RUNS table) */}
-      {pipelineAlerts.length > 0 && (
-        <>
-          <div className="section-header">
-            <span className="section-title">Pipeline Failures</span>
-            <span className="section-sub">{pipelineAlerts.length} in last 7 days</span>
-          </div>
-          {pipelineAlerts.map(a=>(
-            <div key={a.id} style={{
-              marginBottom:8,padding:'10px 14px',
-              background:'rgba(232,64,64,0.04)',
-              border:'1px solid rgba(232,64,64,0.15)',
-              borderLeft:'3px solid var(--red)',
-              borderRadius:3,
-            }}>
-              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
-                <span style={{fontSize:10,fontWeight:700,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.06em'}}>{a.type}</span>
-                {a.pipeline_status && <span style={{fontSize:9,padding:'1px 6px',background:'var(--red-dim)',color:'var(--red)',borderRadius:2,fontWeight:600}}>{a.pipeline_status}</span>}
-                {a.station&&<span style={{fontSize:9,color:'var(--text-dim)'}}>{a.station}</span>}
-                <span style={{fontSize:9,color:'var(--text-dim)',marginLeft:'auto'}}>{a.ts ? fmt.ts(a.ts) : '—'}</span>
-              </div>
-              <div style={{fontSize:10,color:'var(--text-dim)'}}>
-                {typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)}
-              </div>
-            </div>
-          ))}
-          <div style={{marginBottom:20}}/>
-        </>
-      )}
-
-      {/* Health Check Alerts (stale pipelines, missing observations) */}
-      {healthAlerts.length > 0 && (
-        <>
-          <div className="section-header">
-            <span className="section-title">Health Check Issues</span>
-            <span className="section-sub">{healthAlerts.length} detected</span>
-          </div>
-          {healthAlerts.map(a=>(
-            <div key={a.id} style={{
-              marginBottom:8,padding:'10px 14px',
-              background:'rgba(245,158,11,0.04)',
-              border:'1px solid rgba(245,158,11,0.15)',
-              borderLeft:`3px solid ${sevColor(a.severity||0)}`,
-              borderRadius:3,
-            }}>
-              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
-                <span style={{fontSize:10,fontWeight:700,color:sevColor(a.severity||0),textTransform:'uppercase',letterSpacing:'0.06em'}}>{a.type}</span>
-                {a.source&&<span style={{fontSize:9,padding:'1px 6px',background:'var(--bg1)',color:'var(--text-dim)',borderRadius:2}}>{a.source}</span>}
-                {a.station&&<span style={{fontSize:9,color:'var(--text-dim)'}}>{a.station}</span>}
-              </div>
-              <div style={{fontSize:10,color:'var(--text-dim)'}}>
-                {typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)}
-              </div>
-            </div>
-          ))}
-          <div style={{marginBottom:20}}/>
-        </>
-      )}
-
       <div className="section-header">
         <span className="section-title">System Alerts</span>
-        <span className="section-sub">{systemAlerts.filter(a=>!a.resolved).length} unresolved</span>
+        <span className="section-sub">{filtered.filter(a=>!a.resolved).length} unresolved</span>
       </div>
-      {systemAlerts.length === 0 ? (
-        <div className="empty-state"><div className="icon">✅</div>No system alerts.</div>
-      ) : systemAlerts.map(a=>(
+      {filtered.length === 0 ? (
+        <div className="empty-state"><div className="icon">✅</div>No alerts matching filters.</div>
+      ) : filtered.map(a=>(
         <div key={a.id} style={{
           marginBottom:8,padding:'10px 14px',
           background:a.resolved?'var(--bg1)':'var(--bg2)',
@@ -1730,23 +1740,9 @@ function AlertsTab({ data, onResolve }) {
             {!a.resolved&&<button onClick={()=>onResolve(a.id)} style={{padding:'1px 8px',background:'transparent',border:'1px solid var(--border2)',color:'var(--text-dim)',cursor:'pointer',borderRadius:2,fontSize:9,fontFamily:'var(--font-mono)'}}>Resolve</button>}
           </div>
           <div style={{fontSize:10,color:'var(--text-dim)'}}>
-            {typeof a.detail === 'string' && a.detail.includes('html_url') ? (
-              <>
-                {JSON.parse(a.detail).error}
-                <a
-                  href={JSON.parse(a.detail).html_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{color:'var(--cyan)', marginLeft:8}}
-                >
-                  View Logs ↗
-                </a>
-              </>
-            ) : (
-              typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)
-            )}
+            {typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail)}
           </div>
-          {a.resolved&&<div style={{fontSize:9,color:'var(--muted)',marginTop:3}}>RESOLVED</div>}
+          {a.resolved&&<div style={{fontSize:9,color:'var(--muted)',marginTop:3}}>RESOLVED {a.resolved_by ? `by ${a.resolved_by}` : ''} {a.resolved_ts ? fmt.ts(a.resolved_ts) : ''}</div>}
         </div>
       ))}
     </div>
@@ -1759,6 +1755,7 @@ function ParamsTab({ data }) {
   const [values,setValues]=useState(()=>Object.fromEntries((data.params||[]).map(p=>[p.key,p.value||''])));
   const [dirty,setDirty]=useState({});
   const [saving,setSaving]=useState(false);
+  const [saveMsg,setSaveMsg]=useState(null);
 
   const filtered=(data.params||[]).filter(p=>
     p.key.includes(search.toLowerCase())||
@@ -1772,6 +1769,7 @@ function ParamsTab({ data }) {
 
   const saveChanges=async()=>{
     setSaving(true);
+    setSaveMsg(null);
     const changed=Object.keys(dirty).map(k=>({key:k,value:values[k]}));
     try {
       const res = await fetch('/api/params', {
@@ -1780,10 +1778,13 @@ function ParamsTab({ data }) {
         body: JSON.stringify(changed),
       });
       if (!res.ok) throw new Error('Save failed');
+      setDirty({});
+      setSaveMsg({ type: 'ok', text: `${changed.length} param(s) saved` });
+      setTimeout(() => setSaveMsg(null), 4000);
     } catch(e) {
       console.error('Params save error:', e);
+      setSaveMsg({ type: 'err', text: 'Save failed — check console' });
     }
-    setDirty({});
     setSaving(false);
   };
 
@@ -1810,6 +1811,11 @@ function ParamsTab({ data }) {
               Discard
             </button>
           </>
+        )}
+        {saveMsg && (
+          <span style={{fontSize:10,fontWeight:600,color:saveMsg.type==='ok'?'var(--green)':'var(--red)',marginLeft:8}}>
+            {saveMsg.text}
+          </span>
         )}
       </div>
       <div className="card">
@@ -1901,7 +1907,6 @@ function BSSdrilldown({ cell, onClose, bssEnter = 0.07, bssExit = 0.03 }) {
 // ─── TAB: BSS MATRIX ─────────────────────────────────────────────────────────
 function BSSTab({ data }) {
   const [filterType,setFilterType]=useState('ALL');
-  const [viewMode,setViewMode]=useState('grid');
   const [drillCell,setDrillCell]=useState(null);
   const [sortBy,setSortBy]=useState('score');
 
@@ -1934,9 +1939,6 @@ function BSSTab({ data }) {
         <span className="section-title">BSS Skill Matrix<InfoTip text="Brier Skill Score matrix. BSS compares our model's probability forecasts against a climatological baseline. BSS > 0 means our model outperforms the baseline; higher is better." /></span>
         <span style={{fontSize:9,color:'var(--text-dim)'}}>{qualified}/{matrix.length} cells qualified</span>
         <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
-          {['grid','cards'].map(v=>(
-            <button key={v} onClick={()=>setViewMode(v)} style={{padding:'2px 10px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em',background:viewMode===v?'var(--amber)':'transparent',color:viewMode===v?'#000':'var(--text-dim)',border:`1px solid ${viewMode===v?'var(--amber)':'var(--border2)'}`}}>{v}</button>
-          ))}
           {['ALL','HIGH','LOW'].map(t=>(
             <button key={t} onClick={()=>setFilterType(t)} style={{padding:'2px 10px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:9,fontWeight:600,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em',background:filterType===t?'rgba(0,212,216,0.15)':'transparent',color:filterType===t?'var(--cyan)':'var(--text-dim)',border:`1px solid ${filterType===t?'var(--cyan-dim)':'var(--border2)'}`}}>{t}</button>
           ))}
@@ -1945,47 +1947,7 @@ function BSSTab({ data }) {
 
       {matrix.length === 0 && <div className="empty-state"><div className="icon">📊</div>No BSS data — BSS matrix populates after the first evaluation cycle (night pipeline).</div>}
 
-      {matrix.length > 0 && viewMode==='grid' && (
-        <>
-          <div className="card bss-grid-wrap overflow-auto" style={{marginBottom:12}}>
-            <table className="bss-grid">
-              <thead>
-                <tr>
-                  <th style={{textAlign:'left',minWidth:72}}>Station</th>
-                  {types.map(tt=>brackets.map(lb=>(<th key={`${tt}-${lb}`}>{tt[0]}{lb}</th>)))}
-                </tr>
-              </thead>
-              <tbody>
-                {stations.map(st=>(
-                  <tr key={st}>
-                    <td className="bss-station">{st}</td>
-                    {types.map(tt=>brackets.map(lb=>{
-                      const cell=getCell(st,tt,lb);
-                      const cls=cell?bssColor(cell.bss, bssEnter, bssExit):'bss-cell-n';
-                      return (
-                        <td key={`${tt}-${lb}`}>
-                          <div className={cls} title={`${st} · ${tt} · ${lb}: BSS=${cell?.bss?.toFixed(4)||'N/A'}${cell?.qualified?' ✓':''}`}
-                            onClick={()=>setDrillCell(cell?{...cell,station:st,type:tt,bracket:lb}:null)}>
-                            {cell?cell.bss.toFixed(2):'—'}
-                          </div>
-                        </td>
-                      );
-                    }))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="bss-legend">
-            {[{cls:'bss-cell-q',label:`Qualified (≥${bssEnter})`},{cls:'bss-cell-m',label:`Marginal (${bssExit}–${bssEnter})`},{cls:'bss-cell-n',label:`Below exit (<${bssExit})`},{cls:'bss-cell-p',label:'Negative'}].map(({cls,label})=>(
-              <div key={cls} className="bss-leg-item"><div className={`bss-leg-box ${cls}`}/><span>{label}</span></div>
-            ))}
-            <span style={{marginLeft:'auto',fontSize:9,color:'var(--text-dim)'}}>Click any cell for drilldown</span>
-          </div>
-        </>
-      )}
-
-      {matrix.length > 0 && viewMode==='cards' && (
+      {matrix.length > 0 && (
         <>
           <div style={{display:'flex',gap:8,marginBottom:12,alignItems:'center'}}>
             <span style={{fontSize:9,color:'var(--text-dim)'}}>Sort:</span>
@@ -2100,9 +2062,8 @@ function ModelsTab({ data }) {
     }
   }, [stationIds, selectedStation]);
 
-  const { loading: weightsLoading, data: weightsData } = useApiFetch(
-    `/api/ensemble-weights?station=${selectedStation}`
-  );
+  const fetchUrl = stationIds.length > 0 ? `/api/ensemble-weights?station=${selectedStation}` : null;
+  const { loading: weightsLoading, data: weightsData } = useApiFetch(fetchUrl);
 
   const kalmanStates=data.kalman_states||[];
   const bigBias=kalmanStates.filter(k=>Math.abs(k.b_k||0)>1.0).length;
@@ -2174,7 +2135,7 @@ function ModelsTab({ data }) {
 
       {!weightsLoading && weightsData && (()=>{
         const weights=weightsData.weights||[];
-        if(weights.length===0) return <div className="empty-state"><div className="icon">⚖️</div>No weight data for this station — populates after the first market-open pipeline run.</div>;
+        if(weights.length===0) return <div className="empty-state"><div className="icon">⚖️</div>No weight data for {selectedStation} in the last 7 days — populates after a successful market-open pipeline run.</div>;
         const total=weights.reduce((a,w)=>a+w.w_m,0)||1;
         const maxW=Math.max(...weights.map(w=>w.w_m),0);
         const entropyColor=maxW>0.60?'var(--red)':maxW>0.40?'var(--amber)':'var(--green)';
@@ -2230,6 +2191,12 @@ function ModelsTab({ data }) {
               <span style={{color:'var(--text-dim)'}}>Max weight: <span style={{color:'var(--amber)',fontWeight:600}}>{(maxW*100).toFixed(1)}%</span></span>
               <span style={{color:'var(--text-dim)'}}>Stale models: <span style={{color:weights.filter(w=>w.is_stale).length>0?'var(--amber)':'var(--text)'}}>{weights.filter(w=>w.is_stale).length}</span></span>
               <span style={{marginLeft:'auto',color:'var(--text-dim)'}}>Concentration: <strong style={{color:entropyColor}}>{maxW>0.60?'HIGH':maxW>0.40?'MEDIUM':'LOW'}</strong></span>
+              {weights[0]?.computed_at && (() => {
+                const age = (Date.now() - new Date(weights[0].computed_at).getTime()) / 3600000;
+                return age > 48 ? (
+                  <span style={{color:'var(--amber)',fontSize:10,marginLeft:12}}>⚠ Data is {Math.round(age)}h old</span>
+                ) : null;
+              })()}
             </div>
           </div>
         );
@@ -3662,15 +3629,207 @@ function PaperTab() {
   );
 }
 
+// ─── CUSTOMIZE DRAWER ─────────────────────────────────────────────────────────
+function CustomizeDrawer({ prefs, onChange, onSave, onCancel }) {
+  const [draft, setDraft] = useState({ ...prefs });
+  const update = (key, val) => {
+    const next = { ...draft, [key]: val };
+    setDraft(next);
+    onChange(next);
+  };
+
+  return (
+    <>
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200}} onClick={onCancel} />
+      <div style={{
+        position:'fixed',top:0,right:0,bottom:0,width:340,
+        background:'var(--bg1)',borderLeft:'1px solid var(--border2)',
+        zIndex:201,overflowY:'auto',padding:'20px 16px',
+        fontFamily:'var(--font-mono)',fontSize:11,
+      }}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <span style={{fontSize:14,fontWeight:700,color:'var(--text-bright)',letterSpacing:'0.06em'}}>CUSTOMIZE</span>
+          <button onClick={onCancel} style={{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:16}}>✕</button>
+        </div>
+
+        {/* Theme Section */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:9,fontWeight:700,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10}}>Theme</div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:'var(--text-mid)',marginBottom:6}}>Accent Color</div>
+            <div style={{display:'flex',gap:6}}>
+              {Object.entries(ACCENT_COLORS).map(([name, c]) => (
+                <button key={name} onClick={() => update('accentColor', name)}
+                  style={{
+                    width:28,height:28,borderRadius:3,background:c.primary,border:draft.accentColor===name?'2px solid var(--text-bright)':'2px solid transparent',
+                    cursor:'pointer',transition:'border 0.15s',
+                  }}
+                  title={name}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:'var(--text-mid)',marginBottom:6}}>Mode</div>
+            <div style={{display:'flex',gap:6}}>
+              {['dark','light'].map(m => (
+                <button key={m} onClick={() => update('theme', m)}
+                  style={{
+                    padding:'4px 14px',borderRadius:2,fontSize:9,fontWeight:600,cursor:'pointer',
+                    textTransform:'uppercase',letterSpacing:'0.08em',fontFamily:'var(--font-mono)',
+                    background:draft.theme===m?'var(--accent, var(--amber))':'transparent',
+                    color:draft.theme===m?'#000':'var(--text-dim)',
+                    border:`1px solid ${draft.theme===m?'var(--accent, var(--amber))':'var(--border2)'}`,
+                  }}>{m}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:'var(--text-mid)',marginBottom:6}}>Font Size</div>
+            <div style={{display:'flex',gap:6}}>
+              {['small','medium','large'].map(s => (
+                <button key={s} onClick={() => update('fontSize', s)}
+                  style={{
+                    padding:'4px 14px',borderRadius:2,fontSize:9,fontWeight:600,cursor:'pointer',
+                    textTransform:'uppercase',letterSpacing:'0.08em',fontFamily:'var(--font-mono)',
+                    background:draft.fontSize===s?'var(--accent, var(--amber))':'transparent',
+                    color:draft.fontSize===s?'#000':'var(--text-dim)',
+                    border:`1px solid ${draft.fontSize===s?'var(--accent, var(--amber))':'var(--border2)'}`,
+                  }}>{s}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:'var(--text-mid)',marginBottom:6}}>Card Corners</div>
+            <div style={{display:'flex',gap:6}}>
+              {['sharp','rounded'].map(s => (
+                <button key={s} onClick={() => update('cardBorderRadius', s)}
+                  style={{
+                    padding:'4px 14px',borderRadius:2,fontSize:9,fontWeight:600,cursor:'pointer',
+                    textTransform:'uppercase',letterSpacing:'0.08em',fontFamily:'var(--font-mono)',
+                    background:draft.cardBorderRadius===s?'var(--accent, var(--amber))':'transparent',
+                    color:draft.cardBorderRadius===s?'#000':'var(--text-dim)',
+                    border:`1px solid ${draft.cardBorderRadius===s?'var(--accent, var(--amber))':'var(--border2)'}`,
+                  }}>{s}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Layout Section */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:9,fontWeight:700,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10}}>Layout</div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:'var(--text-mid)',marginBottom:6}}>Default Tab</div>
+            <select value={draft.defaultTab} onChange={e => update('defaultTab', e.target.value)}
+              style={{width:'100%',background:'var(--bg2)',border:'1px solid var(--border2)',color:'var(--text-bright)',padding:'6px 8px',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:10}}>
+              {TABS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+
+          <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',marginBottom:8}}>
+            <input type="checkbox" checked={draft.compactMode} onChange={e => update('compactMode', e.target.checked)} />
+            <span style={{fontSize:10,color:'var(--text-mid)'}}>Compact Mode</span>
+          </label>
+
+          <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',marginBottom:8}}>
+            <input type="checkbox" checked={draft.animations} onChange={e => update('animations', e.target.checked)} />
+            <span style={{fontSize:10,color:'var(--text-mid)'}}>Animations</span>
+          </label>
+        </div>
+
+        {/* Top Bar Metrics Section */}
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:9,fontWeight:700,color:'var(--text-dim)',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:10}}>
+            Top Bar Metrics <span style={{fontWeight:400}}>({(draft.topBarMetrics||[]).length}/9)</span>
+          </div>
+          {TOP_BAR_METRIC_POOL.map(m => {
+            const active = (draft.topBarMetrics||[]).includes(m.id);
+            const atCap = (draft.topBarMetrics||[]).length >= 9 && !active;
+            return (
+              <label key={m.id} style={{display:'flex',alignItems:'center',gap:8,cursor:atCap?'not-allowed':'pointer',marginBottom:6,opacity:atCap?0.4:1}}>
+                <input type="checkbox" checked={active} disabled={atCap}
+                  onChange={() => {
+                    const current = draft.topBarMetrics || [];
+                    const next = active ? current.filter(x => x !== m.id) : [...current, m.id];
+                    update('topBarMetrics', next);
+                  }}
+                />
+                <span style={{fontSize:10,color:'var(--text-mid)'}}>{m.label}</span>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* Save/Cancel */}
+        <div style={{display:'flex',gap:8,paddingTop:12,borderTop:'1px solid var(--border)'}}>
+          <button onClick={() => onSave(draft)}
+            style={{flex:1,padding:'8px',background:'var(--accent, var(--amber))',color:'#000',border:'none',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:10,fontWeight:700,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em'}}>
+            Save
+          </button>
+          <button onClick={onCancel}
+            style={{flex:1,padding:'8px',background:'transparent',color:'var(--text-dim)',border:'1px solid var(--border2)',borderRadius:2,fontFamily:'var(--font-mono)',fontSize:10,cursor:'pointer',textTransform:'uppercase',letterSpacing:'0.08em'}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── ROOT DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { data, loading, refresh } = useData();
+  const { prefs, setPrefs, save: savePrefs, loaded: prefsLoaded } = usePreferences();
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [savedPrefs, setSavedPrefs] = useState(null);
   const [tab,setTab]=useState('overview');
   const [modal,setModal]=useState({type:null,ticker:null});
   const [halting,setHalting]=useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [liveBalance, setLiveBalance] = useState(null);
-  
+
+  // Set default tab from preferences
+  useEffect(() => {
+    if (prefsLoaded && prefs.defaultTab) {
+      setTab(prefs.defaultTab);
+    }
+  }, [prefsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Apply CSS variables from preferences
+  useEffect(() => {
+    const root = document.documentElement;
+    const accent = ACCENT_COLORS[prefs.accentColor] || ACCENT_COLORS.amber;
+    root.style.setProperty('--accent', accent.primary);
+    root.style.setProperty('--accent-dim', accent.dim);
+    root.style.setProperty('--accent-glow', accent.glow);
+    root.style.setProperty('--font-base', `${FONT_SIZES[prefs.fontSize] || 12}px`);
+    root.style.setProperty('--card-radius', prefs.cardBorderRadius === 'rounded' ? '8px' : '2px');
+
+    if (prefs.theme === 'light') {
+      root.setAttribute('data-theme', 'light');
+    } else {
+      root.removeAttribute('data-theme');
+    }
+
+    if (!prefs.animations) {
+      root.style.setProperty('--transition-speed', '0s');
+    } else {
+      root.style.removeProperty('--transition-speed');
+    }
+
+    if (prefs.compactMode) {
+      root.setAttribute('data-compact', '');
+    } else {
+      root.removeAttribute('data-compact');
+    }
+  }, [prefs]);
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -3772,6 +3931,19 @@ export default function Dashboard() {
   const displayPortfolio = liveBalance?.portfolio_value ?? s.portfolio_value ?? 0;
   
   const winRate=(s.n_bets_total||0)>0?(s.n_bets_won||0)/(s.n_bets_total||1):0;
+
+  const metricRenderers = {
+    bankroll: () => ({ label: `Bankroll${s.paper_mode ? ' \u00b7 Paper' : ' \u00b7 Live'}`, value: `$${displayBankroll.toFixed(2)}`, cls: 'amber' }),
+    daily_pnl: () => ({ label: 'Daily P&L', value: fmt.usd(s.daily_pnl||0), cls: (s.daily_pnl||0)>=0?'pos':'neg' }),
+    cumulative_pnl: () => ({ label: 'Cumulative', value: fmt.usd(s.cumulative_pnl||0), cls: (s.cumulative_pnl||0)>=0?'pos':'neg' }),
+    mdd: () => ({ label: 'MDD', value: fmt.pct2(s.mdd_alltime||0), cls: 'warn' }),
+    win_rate: () => ({ label: 'Win Rate', value: fmt.pct(winRate), cls: '' }),
+    open_positions: () => ({ label: 'Open Pos.', value: (data.open_positions||[]).length, cls: '' }),
+    sharpe_ratio: () => ({ label: 'Sharpe', value: (s.sharpe_rolling_30||0).toFixed(2), cls: '' }),
+    total_bets: () => ({ label: 'Total Bets', value: s.n_bets_total||0, cls: '' }),
+    paper_pnl: () => ({ label: 'Paper P&L', value: fmt.usd(s.paper_cumulative_pnl||0), cls: (s.paper_cumulative_pnl||0)>=0?'pos':'neg' }),
+  };
+
   const unresolvedAlerts=(data.alerts||[]).filter(a=>!a.resolved).length;
   // Log any unresolved alerts or errors to console for visibility
   if (unresolvedAlerts > 0) {
@@ -3817,41 +3989,24 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="topbar-metrics">
-            <div className="tmet">
-              <div className="tmet-label">Bankroll{s.paper_mode ? ' \u00b7 Paper' : ' \u00b7 Live'}</div>
-              <div className="tmet-val amber">${displayBankroll.toFixed(2)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Daily P&L</div>
-              <div className={`tmet-val ${(s.daily_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.daily_pnl||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Cumulative</div>
-              <div className={`tmet-val ${(s.cumulative_pnl||0)>=0?'pos':'neg'}`}>{fmt.usd(s.cumulative_pnl||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">MDD<InfoTip text="Maximum Drawdown — the largest peak-to-trough portfolio decline." /></div>
-              <div className="tmet-val warn">{fmt.pct2(s.mdd_alltime||0)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Win Rate</div>
-              <div className="tmet-val">{fmt.pct(winRate)}</div>
-            </div>
-            <div className="tmet">
-              <div className="tmet-label">Open Pos.</div>
-              <div className="tmet-val">{(data.open_positions||[]).length}</div>
-            </div>
+            {(prefs.topBarMetrics || []).map(id => {
+              const renderer = metricRenderers[id];
+              if (!renderer) return null;
+              const m = renderer();
+              return (
+                <div key={id} className="tmet">
+                  <div className="tmet-label">{m.label}</div>
+                  <div className={`tmet-val ${m.cls}`}>{m.value}</div>
+                </div>
+              );
+            })}
             <div className="tmet">
               <div className="tmet-label">LOCAL</div>
-              <div className="tmet-val" style={{fontSize:11}}>
-                <LocalClock />
-              </div>
+              <div className="tmet-val" style={{fontSize:11}}><LocalClock /></div>
             </div>
             <div className="tmet">
               <div className="tmet-label">UTC</div>
-              <div className="tmet-val" style={{fontSize:11}}>
-                <UTCClock />
-              </div>
+              <div className="tmet-val" style={{fontSize:11}}><UTCClock /></div>
             </div>
           </div>
           <div className="topbar-right">
@@ -3874,8 +4029,8 @@ export default function Dashboard() {
                   <div className="dropdown-menu">
                     <button className="dropdown-item" onClick={() => {
                       setSettingsOpen(false);
-                      // TODO: Add your settings modal logic here later
-                      console.log("Settings clicked"); 
+                      setSavedPrefs({ ...prefs });
+                      setCustomizeOpen(true);
                     }}>
                       Customize
                     </button>
@@ -4015,7 +4170,16 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {customizeOpen && (
+          <CustomizeDrawer
+            prefs={prefs}
+            onChange={setPrefs}
+            onSave={(newPrefs) => { savePrefs(newPrefs); setCustomizeOpen(false); }}
+            onCancel={() => { if (savedPrefs) setPrefs(savedPrefs); setCustomizeOpen(false); }}
+          />
+        )}
       </div>
     </>
-  ); 
+  );
 }
