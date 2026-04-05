@@ -23,7 +23,7 @@ export async function GET(request) {
          TO_CHAR(MAX(mw.COMPUTED_AT), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS COMPUTED_AT
        FROM MODEL_WEIGHTS mw
        WHERE mw.STATION_ID  = :sid
-         AND mw.COMPUTED_AT >= SYSTIMESTAMP - INTERVAL '2' DAY
+         AND mw.COMPUTED_AT >= SYSTIMESTAMP - INTERVAL '7' DAY
        GROUP BY mw.SOURCE_ID, mw.LEAD_BRACKET
        ORDER BY AVG(mw.W_M) DESC`,
       { sid: stationId }

@@ -17,7 +17,7 @@ export async function POST(request) {
       // Later, you can set this to 'viewer' for other users to limit what they see.
       response.cookies.set({
         name: 'kalshicast-auth',
-        value: 'admin', 
+        value: username,
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
