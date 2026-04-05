@@ -113,9 +113,9 @@ const css = `
   .card-body { padding:12px; }
 
   /* STAT BOXES */
-  .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid var(--border); border-radius:3px; overflow:hidden; }
-  .stat-box { padding:12px 14px; background:var(--bg1); border-right:1px solid var(--border); border-bottom:1px solid var(--border); }
-  .stat-box:nth-child(4n) { border-right:none; }
+  .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid var(--border); border-radius:3px; background:var(--bg1); }
+  .stat-box { padding:12px 14px; border-right:1px solid var(--border); }
+  .stat-box:nth-child(4n), .stat-box:last-child { border-right:none; }
   .stat-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px; }
   .stat-val { font-size:20px; font-weight:500; color:var(--text-bright); line-height:1; }
   .stat-val.amber { color:var(--amber); } .stat-val.green { color:var(--green); } .stat-val.red { color:var(--red); }
